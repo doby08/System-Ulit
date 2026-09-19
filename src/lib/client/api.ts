@@ -13,30 +13,45 @@ export class ApiClient {
   }
 
   async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await fetch(`${this.base}${path}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-      },
-      credentials: "include",
-    });
+    try {
+      const res = await fetch(`${this.base}${path}`, {
+        ...init,
+        headers: {
+          "Content-Type": "application/json",
+          ...(init?.headers ?? {}),
+        },
+        credentials: "include",
+        // Add timeout to prevent hanging requests
+        signal: init?.signal,
+      });
 
-    const json: unknown = await res.json().catch(() => null);
+      const json: unknown = await res.json().catch(() => null);
 
-    if (!res.ok || (json && typeof json === "object" && (json as { ok?: boolean }).ok === false)) {
-      const body = (json as ApiErrorBody) ?? {};
-      throw {
-        status: res.status,
-        message: body.error ?? "Something went wrong",
-        code: body.code,
-        details: body.details,
-        retryable: body.retryable,
-      };
+      if (!res.ok || (json && typeof json === "object" && (json as { ok?: boolean }).ok === false)) {
+        const body = (json as ApiErrorBody) ?? {};
+        throw {
+          status: res.status,
+          message: body.error ?? "Something went wrong",
+          code: body.code,
+          details: body.details,
+          retryable: body.retryable,
+        };
+      }
+
+      const okData = json as { ok?: boolean; data?: T };
+      return okData.data as T;
+    } catch (error) {
+      // Handle network errors gracefully
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw {
+          status: 0,
+          message: "Network error: unable to connect to server",
+          code: "NETWORK_ERROR",
+          retryable: true,
+        };
+      }
+      throw error;
     }
-
-    const okData = json as { ok?: boolean; data?: T };
-    return okData.data as T;
   }
 
   get<T>(path: string, init?: RequestInit) {
@@ -59,7 +74,7 @@ export class ApiClient {
     });
   }
 
-              delete<T>(path: string, init?: RequestInit) {
+  delete<T>(path: string, init?: RequestInit) {
     return this.request<T>(path, { ...init, method: "DELETE" });
   }
 
@@ -94,5 +109,19 @@ export function isApiError(e: unknown): e is ApiError {
 export function getErrorMessage(e: unknown): string {
   if (isApiError(e)) return e.message;
   if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null) {
+    try {
+      return JSON.stringify(e);
+    } catch {
+      return "Something went wrong";
+    }
+  }
   return "Something went wrong";
+}
+
+// Helper to check if error is retryable
+export function isRetryableError(e: unknown): boolean {
+  if (isApiError(e)) return e.retryable === true;
+  if (e instanceof TypeError) return true; // Network errors are usually retryable
+  return false;
 }
