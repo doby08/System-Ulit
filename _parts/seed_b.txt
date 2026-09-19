@@ -1,0 +1,137 @@
+async function buildQuestionRows(
+  surveyId: string,
+  topic: string,
+  stakeholder: string,
+  interviewMethod: string,
+  interviewMode: string,
+  count: number,
+  userId: string,
+) {
+  const generated = generateQuestionsOffline({
+    topic,
+    stakeholder,
+    interviewMethod,
+    interviewMode,
+    language: "en",
+    count,
+    difficulty: null,
+    questionTypes: null,
+    seed: `seed-${topic}`,
+  });
+  return generated.map((question, index) => ({
+    surveyId,
+    versionId: "seed-version",
+    order: index + 1,
+    code: `Q${index + 1}`,
+    text: question.text,
+    originalText: question.text,
+    type: question.type,
+    category: question.category ?? "General",
+    tags: stringifyTags(question.tags),
+    difficulty: question.difficulty,
+    relevanceScore: question.relevanceScore,
+    isRequired: question.isRequired ?? true,
+    options: serializeQuestionOptions(question.options),
+    likertScale: question.likertScale,
+    aiGenerated: true,
+    aiSource: "seed",
+    allowFollowUp: question.allowFollowUp ?? false,
+    isCore: true,
+    createdById: userId,
+  }));
+}
+
+async function seedSurvey(input: {
+  title: string;
+  topic: string;
+  description: string;
+  stakeholder: string;
+  interviewMethod: string;
+  interviewMode: string;
+  language: string;
+  respondentGroup: string | null;
+  questionCount: number;
+  adminId: string;
+}) {
+  const existing = await prisma.survey.findFirst({ where: { title: input.title } });
+  if (existing) return existing;
+
+  const settings = defaultSurveySettings(input.interviewMethod, input.interviewMode);
+  const survey = await prisma.survey.create({
+    data: {
+      title: input.title,
+      topic: input.topic,
+      description: input.description,
+      stakeholder: input.stakeholder,
+      interviewMethod: input.interviewMethod,
+      interviewMode: input.interviewMode,
+      language: input.language,
+      respondentGroup: input.respondentGroup,
+      settings: JSON.stringify(settings),
+      aiProvider: resolveProvider(),
+      status: "DRAFT",
+      version: 1,
+      questionCount: 0,
+      createdById: input.adminId,
+    },
+  });
+
+  const rows = await buildQuestionRows(
+    survey.id,
+    input.topic,
+    input.stakeholder,
+    input.interviewMethod,
+    input.interviewMode,
+    input.questionCount,
+    input.adminId,
+  );
+
+  const parsed = parseTopic(input.topic, input.stakeholder);
+  const snapshot = JSON.stringify({
+    title: survey.title,
+    description: survey.description,
+    stakeholder: survey.stakeholder,
+    topic: survey.topic,
+    interviewMethod: survey.interviewMethod,
+    interviewMode: survey.interviewMode,
+    language: survey.language,
+    settings: JSON.stringify(settings),
+    capturedAt: new Date().toISOString(),
+    questions: rows.map((row, index) => ({
+      ...row,
+      id: `seed-q-${index}`,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })),
+    subject: parsed.subject,
+  });
+
+  const version = await prisma.surveyVersion.create({
+    data: {
+      surveyId: survey.id,
+      version: 1,
+      title: survey.title,
+      topic: survey.topic,
+      description: survey.description,
+      stakeholder: survey.stakeholder,
+      interviewMethod: survey.interviewMethod,
+      interviewMode: survey.interviewMode,
+      language: survey.language,
+      settings: JSON.stringify(settings),
+      snapshot,
+      changeNote: "Seed publication",
+      publishedAt: new Date(),
+      createdById: input.adminId,
+    },
+  });
+
+  await prisma.surveyQuestion.createMany({
+    data: rows.map((row) => ({ ...row, versionId: version.id })),
+  });
+
+  const questionCount = await prisma.surveyQuestion.count({ where: { surveyId: survey.id } });
+  return prisma.survey.update({
+    where: { id: survey.id },
+    data: { status: "PUBLISHED", publishedAt: new Date(), questionCount, aiProvider: "seed" },
+  });
+}

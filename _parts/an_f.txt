@@ -1,0 +1,162 @@
+export async function getQuestionAnalyticsDetail(
+  filters: AnalyticsFilters = {},
+  options: { includeText?: boolean } = {},
+) {
+  const where = buildResponseWhere(filters);
+
+  const questions = await prisma.surveyQuestion.findMany({
+    where: filters.surveyId ? { surveyId: filters.surveyId } : {},
+    orderBy: [{ surveyId: "asc" }, { order: "asc" }],
+    take: 400,
+  });
+
+  const totalResponses = filters.surveyId
+    ? await prisma.response.count({ where })
+    : 0;
+
+  const responseIdsForScale = filters.surveyId
+    ? (
+        await prisma.response.findMany({
+          where,
+          select: { id: true },
+          take: 20000,
+        })
+      ).map((r) => r.id)
+    : [];
+
+  const likertRows = filters.surveyId
+    ? await prisma.likertResponse.findMany({
+        where: { surveyId: filters.surveyId },
+        select: { questionId: true, score: true },
+        take: 20000,
+      })
+    : [];
+
+  const likertByQuestion = new Map<string, number[]>();
+  for (const row of likertRows) {
+    const list = likertByQuestion.get(row.questionId) ?? [];
+    list.push(row.score);
+    likertByQuestion.set(row.questionId, list);
+  }
+
+  const answerScope: { questionId: string }[] =
+    questions.length && filters.surveyId
+      ? questions.map((q) => ({ questionId: q.id }))
+      : [];
+
+  const answersByQuestion = new Map<string, QuestionAggregateInput["answers"]>();
+  if (answerScope.length) {
+    const responseIdSet = new Set(responseIdsForScale);
+    const answers = await prisma.answer.findMany({
+      where: {
+        questionId: { in: questions.map((q) => q.id) },
+        responseId: responseIdSet.size ? { in: [...responseIdSet] } : undefined,
+      },
+      select: {
+        questionId: true,
+        valueText: options.includeText === false ? undefined : true,
+        valueNumber: true,
+        valueOption: true,
+        valueOptions: true,
+        valueBool: true,
+        aiSentiment: true,
+        aiKeywords: true,
+      },
+      take: 20000,
+    });
+    for (const answer of answers) {
+      const list = answersByQuestion.get(answer.questionId) ?? [];
+      list.push(answer);
+      answersByQuestion.set(answer.questionId, list);
+    }
+  }
+
+  return questions.map((question) =>
+    buildQuestionAnalytics({
+      questionId: question.id,
+      code: question.code ?? `Q${question.order}`,
+      text: question.text,
+      type: question.type,
+      category: question.category,
+      totalResponses,
+      answers: answersByQuestion.get(question.id) ?? [],
+      likertScores: likertByQuestion.get(question.id) ?? [],
+      likertScale: question.likertScale ?? 5,
+    }),
+  );
+}
+
+export async function getDashboardStats() {
+  const overview = await getOverviewMetrics({});
+  const [recentSurveys, recentResponses, keywords, recentSync] = await Promise.all([
+    prisma.survey.findMany({
+      orderBy: { updatedAt: "desc" },
+      take: 6,
+      include: {
+        _count: { select: { responses: true, questions: true } },
+      },
+    }),
+    prisma.response.findMany({
+      orderBy: { submittedAt: "desc" },
+      take: 8,
+      include: {
+        survey: { select: { title: true } },
+        respondent: { select: { name: true, respondentCode: true } },
+      },
+    }),
+    prisma.answer.findMany({
+      where: { aiKeywords: { not: null } },
+      select: { aiKeywords: true },
+      take: 400,
+    }),
+    prisma.syncRecord.findFirst({
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true, status: true },
+    }),
+  ]);
+
+  const keywordCounts = new Map<string, number>();
+  for (const row of keywords) {
+    for (const piece of (row.aiKeywords ?? "").split(",")) {
+      const keyword = piece.trim().toLowerCase();
+      if (keyword.length > 2) keywordCounts.set(keyword, (keywordCounts.get(keyword) ?? 0) + 1);
+    }
+  }
+  const topKeywords = [...keywordCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([keyword, count]) => ({ keyword, count }));
+
+  return {
+    ...overview,
+    recentSurveys: recentSurveys.map((survey) => ({
+      id: survey.id,
+      title: survey.title,
+      topic: survey.topic,
+      status: survey.status,
+      interviewMethod: survey.interviewMethod,
+      interviewMode: survey.interviewMode,
+      responses: survey._count.responses,
+      questionCount: survey._count.questions,
+      updatedAt: survey.updatedAt.toISOString(),
+    })),
+    recentResponses: recentResponses.map((response) => ({
+      id: response.id,
+      surveyTitle: response.survey?.title ?? "Deleted survey",
+      respondent:
+        response.respondent?.name ?? response.respondent?.respondentCode ?? "Anonymous",
+      source: response.source,
+      submittedAt: response.submittedAt.toISOString(),
+      status: response.status,
+    })),
+    syncHealth: {
+      pending: overview.offlinePending,
+      syncing: 0,
+      failed: overview.failedSyncs,
+      conflicts: overview.conflicts,
+      synced: overview.syncedResponses,
+      lastSyncAt: recentSync?.updatedAt?.toISOString() ?? overview.lastSyncAt,
+    },
+    topKeywords,
+  };
+}

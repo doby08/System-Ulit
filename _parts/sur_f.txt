@@ -1,0 +1,122 @@
+/* -------------------------------------------------------------------------- */
+/* Multilingual persistence                                                    */
+/* -------------------------------------------------------------------------- */
+export async function saveTranslations(
+  surveyId: string,
+  languages: string[],
+  options: { includeQuestions?: boolean } = {},
+) {
+  const survey = await getSurveyOr404(surveyId);
+  const results: {
+    language: string;
+    provider: string;
+    warnings: string[];
+    questionTranslations: number;
+  }[] = [];
+
+  for (const language of languages) {
+    if (!language || language === "en") continue;
+
+    const fields = await translateSurveyFields(
+      { title: survey.title, topic: survey.topic, description: survey.description },
+      language,
+    );
+
+    const questionTranslations: { questionId: string; text: string }[] = [];
+    let warnings = [...fields.warnings];
+    let provider: string = fields.provider;
+
+    if (options.includeQuestions !== false && survey.questions.length) {
+      const {
+        translations,
+        provider: questionProvider,
+        warnings: questionWarnings,
+      } = await translateBatch(
+        survey.questions.map((q) => q.text),
+        language,
+        `Survey topic: ${survey.topic}. Stakeholder: ${survey.stakeholder}. Keep meaning and Likert ordering intact.`,
+      );
+      warnings = warnings.concat(questionWarnings);
+      provider = questionProvider;
+      survey.questions.forEach((question, index) => {
+        const text = translations[index];
+        if (text) questionTranslations.push({ questionId: question.id, text });
+      });
+
+      for (const entry of questionTranslations) {
+        const existing = await prisma.questionTranslation.findFirst({
+          where: { questionId: entry.questionId, language },
+          select: { id: true },
+        });
+        if (existing) {
+          await prisma.questionTranslation.update({
+            where: { id: existing.id },
+            data: { text: entry.text, source: provider === "openai" ? "AI" : "OFFLINE_ENGINE" },
+          });
+        } else {
+          await prisma.questionTranslation.create({
+            data: {
+              questionId: entry.questionId,
+              language,
+              text: entry.text,
+              source: provider === "openai" ? "AI" : "OFFLINE_ENGINE",
+            },
+          });
+        }
+      }
+    }
+
+    await prisma.surveyTranslation.upsert({
+      where: { surveyId_language: { surveyId, language } },
+      create: {
+        surveyId,
+        language,
+        title: fields.title,
+        topic: fields.topic,
+        description: fields.description,
+        source: provider === "openai" ? "AI" : "OFFLINE_ENGINE",
+      },
+      update: {
+        title: fields.title,
+        topic: fields.topic,
+        description: fields.description,
+        source: provider === "openai" ? "AI" : "OFFLINE_ENGINE",
+      },
+    });
+
+    results.push({
+      language,
+      provider,
+      warnings,
+      questionTranslations: questionTranslations.length,
+    });
+  }
+
+  return { languages: results };
+}
+
+/** Loads question translations keyed by question id → language → text. */
+export async function loadQuestionTranslations(questionIds: string[]) {
+  if (!questionIds.length) return {} as Record<string, Record<string, string>>;
+  const rows = await prisma.questionTranslation.findMany({
+    where: { questionId: { in: questionIds } },
+    select: { questionId: true, language: true, text: true },
+  });
+  const map: Record<string, Record<string, string>> = {};
+  for (const row of rows) {
+    if (!row.questionId) continue;
+    map[row.questionId] = map[row.questionId] ?? {};
+    map[row.questionId][row.language] = row.text;
+  }
+  return map;
+}
+
+/** Loads survey-level translations keyed by language. */
+export async function loadSurveyTranslations(surveyId: string) {
+  const rows = await prisma.surveyTranslation.findMany({ where: { surveyId } });
+  const map: Record<string, { title: string; topic: string; description: string }> = {};
+  for (const row of rows) {
+    map[row.language] = { title: row.title, topic: row.topic, description: row.description };
+  }
+  return map;
+}

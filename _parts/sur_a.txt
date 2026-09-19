@@ -1,0 +1,139 @@
+/**
+ * Survey service — creation, editing, question management, versioning/publish,
+ * translation storage and lifecycle operations. All mutations are audited.
+ */
+import type { z } from "zod";
+import { prisma } from "@/lib/prisma";
+import { ApiError } from "@/lib/server/api";
+import { logAudit } from "@/lib/server/auth";
+import { parseSurveySettings, serializeQuestionOptions, serializeSurveySettings } from "@/lib/settings";
+import {
+  buildVersionSnapshot,
+  mapQuestionToDraft,
+  parseVersionSnapshot,
+  type QuestionRecord,
+} from "@/lib/server/questions";
+import { translateBatch, translateSurveyFields } from "@/lib/ai/translate";
+import { stringifyTags } from "@/lib/utils";
+import { MAX_QUESTIONS_PER_SURVEY } from "@/lib/constants";
+import type { questionInputSchema, surveyCreateSchema, surveyUpdateSchema } from "@/lib/server/validation";
+import type { SurveySettings } from "@/lib/types";
+
+type SurveyCreateInput = z.infer<typeof surveyCreateSchema>;
+type SurveyUpdateInput = z.infer<typeof surveyUpdateSchema>;
+type QuestionInput = z.infer<typeof questionInputSchema>;
+
+export type ActorMeta = { ip?: string | null; userAgent?: string | null };
+
+type RawOption = { label: string; value?: string; score?: number };
+
+/** Normalises validated option payloads into fully-populated QuestionOption objects. */
+export function toQuestionOptions(options?: RawOption[] | null) {
+  if (!options?.length) return null;
+  return options.map((option, index) => ({
+    label: option.label,
+    value: option.value ?? option.label,
+    score: typeof option.score === "number" ? option.score : index + 1,
+  }));
+}
+
+function questionCreateData(
+  input: QuestionInput,
+  context: { surveyId: string; order: number; versionId?: string | null; createdById?: string | null },
+) {
+  const order = input.order ?? context.order;
+  const type = input.type;
+  return {
+    surveyId: context.surveyId,
+    versionId: context.versionId ?? null,
+    order,
+    code: input.code?.trim() || `Q${order}`,
+    text: input.text.trim(),
+    originalText: (input.originalText ?? input.text).trim(),
+    helpText: input.helpText ?? null,
+    type,
+    category: input.category ?? null,
+    tags: stringifyTags(input.tags),
+    difficulty: input.difficulty ?? null,
+    relevanceScore: input.relevanceScore ?? null,
+    isRequired: input.isRequired ?? true,
+    options: serializeQuestionOptions(toQuestionOptions(input.options)),
+    likertScale: input.likertScale ?? (type === "LIKERT_5" ? 5 : type === "LIKERT_7" ? 7 : null),
+    aiGenerated: input.aiGenerated ?? false,
+    aiSource: input.aiSource ?? null,
+    allowFollowUp: input.allowFollowUp ?? false,
+    isCore: input.isCore ?? true,
+    createdById: context.createdById ?? null,
+  };
+}
+
+export async function getSurveyOr404(surveyId: string) {
+  const survey = await prisma.survey.findUnique({
+    where: { id: surveyId },
+    include: {
+      questions: { orderBy: { order: "asc" } },
+      versions: { orderBy: { version: "desc" } },
+      qrTokens: { orderBy: { createdAt: "desc" } },
+      createdBy: { select: { id: true, fullName: true } },
+      _count: { select: { responses: true, respondents: true, sessions: true, questions: true, qrTokens: true } },
+    },
+  });
+  if (!survey) throw new ApiError("Survey not found.", 404, { code: "NOT_FOUND" });
+  return survey;
+}
+
+/** Creates a survey (optionally with its prepared questions) as a draft. */
+export async function createSurvey(userId: string, input: SurveyCreateInput, meta: ActorMeta = {}) {
+  const settings = parseSurveySettings(input.settings ?? {}, input.interviewMethod, input.interviewMode);
+  const questions = (input.questions ?? []).slice(0, MAX_QUESTIONS_PER_SURVEY);
+
+  const survey = await prisma.survey.create({
+    data: {
+      title: input.title.trim(),
+      topic: input.topic.trim(),
+      description: input.description?.trim() ?? "",
+      stakeholder: input.stakeholder.trim(),
+      interviewMethod: input.interviewMethod,
+      interviewMode: input.interviewMode,
+      language: input.language,
+      respondentGroup: input.respondentGroup ?? null,
+      location: input.location ?? null,
+      startsAt: input.startsAt ?? null,
+      expiresAt: input.expiresAt ?? null,
+      targetRespondents: input.targetRespondents ?? null,
+      settings: serializeSurveySettings(settings),
+      aiProvider: input.aiProvider ?? null,
+      status: "DRAFT",
+      version: 1,
+      questionCount: questions.length,
+      createdById: userId,
+      questions: {
+        create: questions.map((question, index) => {
+          const { surveyId: _parentSupplied, ...data } = questionCreateData(question, {
+            surveyId: "nested",
+            order: index + 1,
+            createdById: userId,
+          });
+          return data;
+        }),
+      },
+    },
+    include: { questions: { orderBy: { order: "asc" } }, createdBy: { select: { id: true, fullName: true } } },
+  });
+
+  await logAudit({
+    action: "SURVEY_CREATED",
+    entity: "Survey",
+    entityId: survey.id,
+    actorId: userId,
+    details: { title: survey.title, method: survey.interviewMethod, mode: survey.interviewMode },
+    ip: meta.ip,
+    userAgent: meta.userAgent,
+  });
+
+  if (input.publish) {
+    await publishSurvey(userId, survey.id, { meta });
+    return getSurveyOr404(survey.id);
+  }
+  return survey;
+}

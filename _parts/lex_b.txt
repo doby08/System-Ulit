@@ -1,0 +1,33 @@
+export const STOPWORDS = new Set([
+  "the", "a", "an", "and", "or", "but", "if", "then", "than", "that", "this", "these", "those",
+  "is", "are", "was", "were", "be", "been", "being", "am", "do", "does", "did", "have", "has",
+  "had", "will", "would", "shall", "should", "can", "could", "may", "might", "must", "to", "of",
+  "in", "on", "at", "by", "for", "with", "about", "from", "into", "during", "before", "after",
+  "above", "below", "up", "down", "out", "off", "over", "under", "again", "further", "once",
+  "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more",
+  "most", "other", "some", "such", "only", "own", "same", "so", "too", "very", "just", "also",
+  "i", "me", "my", "we", "our", "you", "your", "he", "him", "his", "she", "her", "it", "its",
+  "they", "them", "their", "what", "which", "who", "whom", "as", "because", "while", "get",
+  "got", "many", "much", "one", "two", "use", "using", "used", "really", "even", "still",
+  "nag", "ang", "ng", "sa", "mga", "ko", "mo", "namin", "natin", "nila", "siya", "sila", "ito",
+  "iyan", "iyon", "para", "dahil", "kung", "naman", "lang", "yung", "yong", "ako", "kami",
+  "kayo", "po", "opo", "may", "meron", "wala", "na", "pa", "din", "rin", "at", "o", "kay",
+  "ni", "nina", "dito", "doon", "mao", "nga", "among", "ug", "nimo", "namo", "nato", "kini",
+  "kana", "kadto", "aron", "tungod", "kon", "pod", "man", "kamo", "ka", "kag", "naton", "sya",
+  "ini", "ina", "adto", "bangod", "ikaw", "ti", "iti", "dagiti", "ket", "wenno", "no", "ta",
+  "isuna", "isuda", "daytoy", "dayta", "idiay", "tapno",
+]);
+
+/** Theme taxonomy — keyword sets mapped to human-readable insight themes. */
+export const THEME_RULES: { theme: string; keywords: string[] }[] = [
+  { theme: "Service Quality", keywords: ["quality", "reliable", "reliability", "consistent", "standard", "performance", "kalidad", "dekalidad"] },
+  { theme: "Access & Availability", keywords: ["access", "accessibility", "available", "availability", "hours", "schedule", "reach", "location", "queue", "waiting", "pila", "oras", "abli"] },
+  { theme: "Communication & Information", keywords: ["information", "communication", "announcement", "update", "clear", "clarity", "instructions", "notice", "feedback", "impormasyon", "abiso", "pahibalo", "pakaammo"] },
+  { theme: "Staff & Support", keywords: ["staff", "personnel", "employee", "attitude", "courteous", "polite", "friendly", "helpful", "support", "assistance", "kawani", "guro", "trabahante", "empleyado"] },
+  { theme: "Facilities & Environment", keywords: ["facility", "facilities", "room", "classroom", "building", "comfort", "cleanliness", "dirty", "parking", "equipment", "pasilidad", "sala", "gusali", "lawak"] },
+  { theme: "Digital Experience", keywords: ["system", "website", "portal", "app", "online", "internet", "wifi", "computer", "digital", "technology", "login", "server", "sistema"] },
+  { theme: "Process & Efficiency", keywords: ["process", "procedure", "requirement", "requirements", "steps", "transaction", "document", "documents", "efficiency", "efficient", "proseso", "pamamaraan", "dokumento"] },
+  { theme: "Cost & Affordability", keywords: ["cost", "fee", "fees", "price", "expensive", "affordable", "budget", "payment", "bayad", "gastos", "presyo", "mahal"] },
+  { theme: "Trust, Safety & Privacy", keywords: ["trust", "safe", "safety", "security", "privacy", "data", "confidential", "fair", "tiwala", "seguridad", "pribasiya", "ligtas"] },
+  { theme: "Satisfaction & Experience", keywords: ["satisfied", "satisfaction", "happy", "experience", "expectation", "recommend", "kasiyahan", "karanasan", "rekomendasyon", "katagbawan"] },
+];

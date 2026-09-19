@@ -1,0 +1,82 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { isPostgres } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapBankItemRecord } from "@/lib/server/serializers";
+import { bankItemSchema, bankItemUpdateSchema, paginationSchema } from "@/lib/server/validation";
+import { stringifyTags } from "@/lib/utils";
+
+/** GET /api/admin/bank — searchable, filterable question bank. */
+export async function GET_BANK(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const search = (url.searchParams.get("search") ?? "").trim();
+  const category = url.searchParams.get("category") ?? undefined;
+  const type = url.searchParams.get("type") ?? undefined;
+  const difficulty = url.searchParams.get("difficulty") ?? undefined;
+  const method = url.searchParams.get("method") ?? undefined;
+  const language = url.searchParams.get("language") ?? undefined;
+  const favorite = url.searchParams.get("favorite");
+  const archived = url.searchParams.get("archived") ?? "false";
+
+  const where = {
+    ...(archived === "true"
+      ? { isArchived: true }
+      : archived === "false"
+        ? { isArchived: false }
+        : {}),
+    ...(category ? { category } : {}),
+    ...(type ? { type } : {}),
+    ...(difficulty ? { difficulty } : {}),
+    ...(method ? { interviewMethod: method } : {}),
+    ...(language ? { language } : {}),
+    ...(favorite === "true" ? { isFavorite: true } : {}),
+    ...(search
+      ? isPostgres()
+        ? { text: { contains: search, mode: "insensitive" as const } }
+        : { text: { contains: search } }
+      : {}),
+  };
+
+  const [total, items] = await Promise.all([
+    prisma.questionBankItem.count({ where }),
+    prisma.questionBankItem.findMany({
+      where,
+      orderBy: [{ isFavorite: "desc" }, { usageCount: "desc" }, { updatedAt: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return ok({ items: items.map(mapBankItemRecord), total, page, pageSize });
+}
+
+/** POST /api/admin/bank — add a question to the bank. */
+export async function POST_BANK(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, bankItemSchema);
+  const item = await prisma.questionBankItem.create({
+    data: {
+      text: body.text.trim(),
+      category: body.category ?? null,
+      type: body.type,
+      tags: stringifyTags(body.tags),
+      difficulty: body.difficulty ?? null,
+      relevanceScore: body.relevanceScore ?? null,
+      interviewMethod: body.interviewMethod ?? null,
+      language: body.language,
+      stakeholder: body.stakeholder ?? null,
+      options: body.options ? JSON.stringify(body.options) : null,
+      likertScale: body.likertScale ?? null,
+      isFavorite: body.isFavorite ?? false,
+      isArchived: body.isArchived ?? false,
+      createdById: user.id,
+    },
+  });
+  return ok(mapBankItemRecord(item), { status: 201 });
+}
+
+export { fail };

@@ -1,0 +1,147 @@
+/** Creates or resumes an interview session (individual, group or random mode). */
+export async function resolveInterviewSession(
+  tx: Prisma.TransactionClient,
+  payload: ResponseSubmitPayload,
+  context: { surveyId: string; versionId: string | null; mode: string; respondentId: string },
+) {
+  const sessionInput = payload.session ?? {};
+  const code = sessionInput.sessionCode?.trim();
+
+  let session = code
+    ? await tx.interviewSession.findUnique({ where: { sessionCode: code } })
+    : await tx.interviewSession.findFirst({
+        where: {
+          surveyId: context.surveyId,
+          respondentId: context.respondentId,
+          status: "IN_PROGRESS",
+        },
+        orderBy: { startedAt: "desc" },
+      });
+
+  if (!session) {
+    session = await tx.interviewSession.create({
+      data: {
+        sessionCode: code || generateCode("SES"),
+        surveyId: context.surveyId,
+        versionId: context.versionId,
+        respondentId: context.respondentId,
+        mode: context.mode,
+        groupName: sessionInput.groupName?.trim() || null,
+        notes: sessionInput.notes?.trim() || null,
+        status: sessionInput.status ?? "IN_PROGRESS",
+        device: payload.device ?? null,
+        networkState: payload.networkState ?? null,
+        language: payload.language ?? null,
+        completedAt: payload.status === "COMPLETE" ? new Date() : null,
+      },
+    });
+  } else {
+    session = await tx.interviewSession.update({
+      where: { id: session.id },
+      data: {
+        groupName: sessionInput.groupName?.trim() || session.groupName,
+        notes: sessionInput.notes?.trim() || session.notes,
+        status: sessionInput.status ?? session.status,
+        networkState: payload.networkState ?? session.networkState,
+        device: payload.device ?? session.device,
+        versionId: session.versionId ?? context.versionId,
+        completedAt:
+          (sessionInput.status === "COMPLETED" || sessionInput.status === "COMPLETE") &&
+          !session.completedAt
+            ? new Date()
+            : session.completedAt,
+      },
+    });
+  }
+
+  // Group members (Group interview mode)
+  const members = sessionInput.members ?? [];
+  if (members.length) {
+    await tx.groupMember.deleteMany({ where: { sessionId: session.id } });
+    await tx.groupMember.createMany({
+      data: members.map((member) => ({
+        sessionId: session.id,
+        surveyId: context.surveyId,
+        name: member.name.slice(0, 160),
+        role: member.role?.slice(0, 80) ?? null,
+        answersCount: member.answersCount ?? 0,
+      })),
+    });
+  }
+
+  // Optional session recording metadata (captured only with explicit browser permission)
+  const recording = sessionInput.recording;
+  if (recording) {
+    const common = {
+      status: recording.status ?? "STOPPED",
+      mimeType: recording.mimeType ?? null,
+      durationSec: recording.durationSec ?? 0,
+      sizeBytes: recording.sizeBytes ?? 0,
+      storageRef: recording.storageRef ?? null,
+    };
+    await tx.sessionRecording.upsert({
+      where: { sessionId: session.id },
+      create: {
+        sessionId: session.id,
+        kind: recording.kind ?? "AUDIO",
+        ...common,
+        stoppedAt: new Date(),
+      },
+      update: { ...common, stoppedAt: new Date() },
+    });
+  }
+
+  return session;
+}
+
+/** Loads the exact question set a token points at (version snapshot first). */
+export async function resolveTokenQuestionSet(token: string) {
+  const qr = await resolvePublicToken(token);
+  let questions: QuestionRecord[] = [];
+  let source: "VERSION" | "LIVE" = "LIVE";
+
+  if (qr.versionId) {
+    const version = await prisma.surveyVersion.findUnique({
+      where: { id: qr.versionId },
+      select: { snapshot: true },
+    });
+    const snapshot = parseVersionSnapshot(version?.snapshot ?? null);
+    if (snapshot?.questions?.length) {
+      questions = snapshot.questions;
+      source = "VERSION";
+    }
+  }
+
+  if (!questions.length) {
+    const live = await prisma.surveyQuestion.findMany({
+      where: { surveyId: qr.surveyId },
+      orderBy: { order: "asc" },
+    });
+    questions = live as unknown as QuestionRecord[];
+  }
+
+  return {
+    qr,
+    questions,
+    source,
+    settings: parseSurveySettings(
+      qr.survey.settings,
+      qr.survey.interviewMethod,
+      qr.survey.interviewMode,
+    ),
+  };
+}
+
+/** Sentiment/keyword enrichment for open-text answers (feeds AI analytics). */
+export function enrichOpenText(text: string | null) {
+  if (!text || text.trim().length < 3) {
+    return { aiSentiment: null, aiKeywords: null, aiThemes: null };
+  }
+  const { score } = scoreText(text);
+  const keywords = tokenize(text).slice(0, 8);
+  return {
+    aiSentiment: classifySentiment(score),
+    aiKeywords: keywords.join(", ") || null,
+    aiThemes: null,
+  };
+}

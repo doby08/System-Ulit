@@ -1,0 +1,116 @@
+/** Converts a stored Likert answer into a LikertResponse row (score/percentage). */
+export function buildLikertRow(params: {
+  answerId: string;
+  surveyId: string;
+  questionId: string;
+  respondentId: string;
+  sessionId: string;
+  type: string;
+  likertScale: number | null;
+  options: string | null;
+  value: { valueOption: string | null; valueText: string | null; valueNumber: number | null };
+}) {
+  const scale = params.type === "LIKERT_7" ? 7 : 5;
+  let labels: string[] | undefined;
+  try {
+    const raw = params.options ? JSON.parse(params.options) : null;
+    if (Array.isArray(raw) && raw.length === scale) {
+      labels = raw.map((entry) =>
+        typeof entry === "string" ? entry : String((entry as { label?: unknown })?.label ?? ""),
+      );
+    }
+  } catch {
+    labels = undefined;
+  }
+
+  const raw =
+    params.value.valueOption ??
+    params.value.valueText ??
+    (params.value.valueNumber !== null ? String(params.value.valueNumber) : null);
+  const resolved = resolveLikertScore(raw, scale, labels);
+  if (!resolved) return null;
+
+  return {
+    answerId: params.answerId,
+    surveyId: params.surveyId,
+    questionId: params.questionId,
+    respondentId: params.respondentId,
+    sessionId: params.sessionId,
+    scale,
+    score: resolved.score,
+    label: raw ?? String(resolved.score),
+    normalized: resolved.normalized,
+    isPositive: resolved.isPositive,
+  };
+}
+
+/**
+ * Idempotency guard: returns a SubmitResult when the response already exists
+ * (duplicate or conflict) and writes the corresponding sync record.
+ */
+export async function checkDuplicateOrConflict(
+  payload: ResponseSubmitPayload,
+  context: { surveyId: string; contentHash: string },
+): Promise<SubmitResult | null> {
+  const existing = await prisma.response.findUnique({
+    where: { clientResponseId: payload.clientResponseId },
+    include: { _count: { select: { answers: true } } },
+  });
+  if (!existing) return null;
+
+  if (existing.contentHash === context.contentHash) {
+    await prisma.syncRecord.create({
+      data: {
+        surveyId: context.surveyId,
+        responseId: existing.id,
+        clientResponseId: payload.clientResponseId,
+        deviceId: payload.deviceId ?? payload.device ?? null,
+        direction: "UP",
+        status: "SYNCED",
+        attempt: 1,
+        message: "Duplicate submission ignored (idempotent synchronization).",
+      },
+    });
+    return {
+      clientResponseId: payload.clientResponseId,
+      serverResponseId: existing.id,
+      status: "DUPLICATE",
+      answersSaved: existing._count.answers,
+      message: "This response was already saved on the server — no duplicate was created.",
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.syncRecord.create({
+      data: {
+        surveyId: context.surveyId,
+        responseId: existing.id,
+        clientResponseId: payload.clientResponseId,
+        deviceId: payload.deviceId ?? payload.device ?? null,
+        direction: "UP",
+        status: "CONFLICT",
+        attempt: 1,
+        message:
+          "A different version of this response already exists on the server. No data was overwritten — administrator review required.",
+        localSnapshot: JSON.stringify(payload).slice(0, 20000),
+        serverSnapshot: JSON.stringify({
+          contentHash: existing.contentHash,
+          revision: existing.revision,
+          submittedAt: existing.submittedAt.toISOString(),
+          answers: existing._count.answers,
+        }),
+      },
+    });
+    await tx.response.update({ where: { id: existing.id }, data: { syncStatus: "CONFLICT" } });
+  });
+
+  return {
+    clientResponseId: payload.clientResponseId,
+    serverResponseId: existing.id,
+    status: "CONFLICT",
+    answersSaved: existing._count.answers,
+    message:
+      "A conflicting copy of this response already exists on the server. The server copy was preserved and the conflict was flagged for review.",
+    conflictOf: existing.id,
+  };
+}

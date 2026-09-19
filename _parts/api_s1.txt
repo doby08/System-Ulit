@@ -1,0 +1,94 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { isPostgres } from "@/lib/prisma";
+import { ApiError, fail, getIp, getUserAgent, ok, readJson } from "@/lib/server/api";
+import { requireAdminApi } from "@/lib/server/api";
+import { logAudit } from "@/lib/server/auth";
+import { createSurvey } from "@/lib/server/surveys";
+import { mapSurveySummary } from "@/lib/server/serializers";
+import { paginationSchema, surveyCreateSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/dashboard — live operational statistics + recent activity. */
+export async function GET() {
+  try {
+    await requireAdminApi();
+    const { getDashboardStats } = await import("@/lib/server/analytics");
+    return ok(await getDashboardStats());
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/** GET /api/admin/surveys — paginated survey list with search + filters. */
+export async function GET_LIST(request: NextRequest) {
+  const user = await requireAdminApi();
+  void user;
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const search = (url.searchParams.get("search") ?? "").trim();
+  const status = url.searchParams.get("status") ?? undefined;
+  const method = url.searchParams.get("method") ?? undefined;
+  const mode = url.searchParams.get("mode") ?? undefined;
+
+  const where = {
+    ...(status ? { status } : {}),
+    ...(method ? { interviewMethod: method } : {}),
+    ...(mode ? { interviewMode: mode } : {}),
+    ...(search
+      ? isPostgres()
+        ? {
+            OR: [
+              { title: { contains: search, mode: "insensitive" as const } },
+              { topic: { contains: search, mode: "insensitive" as const } },
+            ],
+          }
+        : {
+            OR: [{ title: { contains: search } }, { topic: { contains: search } }],
+          }
+      : {}),
+  };
+
+  const [total, surveys] = await Promise.all([
+    prisma.survey.count({ where }),
+    prisma.survey.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        createdBy: { select: { id: true, fullName: true } },
+        _count: {
+          select: { responses: true, respondents: true, questions: true, qrTokens: true, sessions: true },
+        },
+      },
+    }),
+  ]);
+
+  return ok({ items: surveys.map(mapSurveySummary), total, page, pageSize });
+}
+
+/** POST /api/admin/surveys — create a draft survey (optionally publish). */
+export async function POST_CREATE(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, surveyCreateSchema);
+  const survey = await createSurvey(user.id, body, {
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  await logAudit({
+    action: "SURVEY_API_CREATED",
+    entity: "Survey",
+    entityId: survey.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { title: survey.title },
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok(mapSurveySummary({ ...survey, questionCount: survey.questions?.length ?? 0 }), {
+    status: 201,
+  });
+}

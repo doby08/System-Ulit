@@ -1,0 +1,116 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapAuditEntry, mapSyncRecordEntry } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { paginationSchema } from "@/lib/server/validation";
+import { syncResolveSchema } from "@/lib/server/validation-public";
+
+/** GET /api/admin/sync — sync health, records and conflict queue. */
+export async function GET_SYNC(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const status = url.searchParams.get("status") ?? undefined;
+  const only = url.searchParams.get("only") ?? undefined;
+
+  const where = {
+    ...(status ? { status } : {}),
+    ...(only === "conflicts" ? { status: "CONFLICT" } : {}),
+    ...(only === "failed" ? { status: "FAILED" } : {}),
+    ...(only === "pending" ? { status: "PENDING" } : {}),
+  };
+
+  const [records, counts, lastSync] = await Promise.all([
+    prisma.syncRecord.findMany({
+      where,
+      orderBy: { updatedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        survey: { select: { id: true, title: true } },
+        response: { select: { id: true, submittedAt: true, source: true, answersCount: true } },
+      },
+    }),
+    prisma.syncRecord.groupBy({ by: ["status"], _count: { _all: true } }),
+    prisma.syncRecord.findFirst({
+      where: { status: "SYNCED" },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+  ]);
+
+  const summary = {
+    pending: counts.find((c) => c.status === "PENDING")?._count._all ?? 0,
+    synced: counts.find((c) => c.status === "SYNCED")?._count._all ?? 0,
+    failed: counts.find((c) => c.status === "FAILED")?._count._all ?? 0,
+    conflicts: counts.find((c) => c.status === "CONFLICT")?._count._all ?? 0,
+    lastSyncAt: lastSync?.updatedAt?.toISOString() ?? null,
+  };
+
+  return ok({ items: records.map(mapSyncRecordEntry), summary, page, pageSize });
+}
+
+type SyncContext = { params: Promise<{ syncId: string }> };
+
+/** POST /api/admin/sync/[syncId]/resolve — resolve a sync conflict. */
+export async function POST_RESOLVE(request: NextRequest, { params }: SyncContext) {
+  const user = await requireAdminApi();
+  const { syncId } = await params;
+  const body = await readJson(request, syncResolveSchema);
+
+  const record = await prisma.syncRecord.findUnique({
+    where: { id: syncId },
+    include: { response: true },
+  });
+  if (!record) return ok({ resolved: false, message: "Sync record not found." });
+
+  let responseUpdate: Record<string, unknown> = {};
+  if (body.action === "ACCEPT_LOCAL" && body.localSnapshot) {
+    responseUpdate = { syncStatus: "SYNCED", revision: { increment: 1 }, syncedAt: new Date() };
+  } else if (body.action === "ACCEPT_SERVER") {
+    responseUpdate = { syncStatus: "SYNCED", syncedAt: new Date() };
+  }
+
+  if (record.responseId && Object.keys(responseUpdate).length) {
+    await prisma.response.update({
+      where: { id: record.responseId },
+      data: responseUpdate,
+    });
+  }
+
+  const updated = await prisma.syncRecord.update({
+    where: { id: syncId },
+    data: {
+      status: "SYNCED",
+      resolution: body.action,
+      resolvedAt: new Date(),
+      message:
+        body.action === "ACCEPT_LOCAL"
+          ? "Conflict resolved: local (device) copy accepted as authoritative."
+          : body.action === "ACCEPT_SERVER"
+            ? "Conflict resolved: server copy retained."
+            : "Conflict dismissed (no changes applied).",
+      actorId: user.id,
+    },
+  });
+
+  await logAudit({
+    action: "SYNC_CONFLICT_RESOLVED",
+    entity: "SyncRecord",
+    entityId: syncId,
+    actorId: user.id,
+    actorName: user.username,
+    details: { action: body.action, responseId: record.responseId },
+  });
+
+  return ok({
+    resolved: true,
+    record: mapSyncRecordEntry({ ...updated, survey: null, response: null }),
+  });
+}
+
+export { fail };

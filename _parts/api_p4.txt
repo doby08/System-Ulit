@@ -1,0 +1,111 @@
+import { NextRequest } from "next/server";
+import { fail, ok, readJson } from "@/lib/server/api";
+import { translateBatch, translateSurveyFields } from "@/lib/ai/translate";
+import { prisma } from "@/lib/prisma";
+import { resolvePublicToken } from "@/lib/server/qr";
+import { loadQuestionTranslations } from "@/lib/server/surveys";
+import { z } from "zod";
+import { ApiError, enforceRateLimit, getIp } from "@/lib/server/api";
+
+const bodySchema = z.object({
+  token: z.string().min(8).max(120),
+  language: z.string().min(2).max(12),
+  surveyId: z.string().min(4).optional(),
+});
+
+/**
+ * GET /api/public/translate?token=...&language=tl — translations for the
+ * prepared question set (responses stay linked to the original question IDs).
+ */
+export async function GET_PUBLIC_TRANSLATIONS(request: NextRequest) {
+  try {
+    const url = new URL(request.url);
+    const token = url.searchParams.get("token") ?? "";
+    const language = url.searchParams.get("language") ?? "en";
+    if (token.length < 8) throw new ApiError("A valid survey token is required.", 400);
+    if (!language || language.length < 2) throw new ApiError("A target language is required.", 400);
+
+    const qr = await resolvePublicToken(token);
+    const questions = await prisma.surveyQuestion.findMany({
+      where: { surveyId: qr.surveyId },
+      orderBy: { order: "asc" },
+      select: { id: true, text: true },
+    });
+
+    const stored = await loadQuestionTranslations(questions.map((q) => q.id));
+
+    // Ensure translations exist for the requested language (AI or offline engine).
+    const missing = questions.filter((q) => !stored[q.id]?.[language]);
+    if (missing.length) {
+      const { translations, warnings } = await translateBatch(
+        missing.map((q) => q.text),
+        language,
+        `Survey topic: ${qr.survey.topic}. Stakeholder: ${qr.survey.stakeholder}. Keep meaning and Likert ordering intact.`,
+      );
+      void warnings;
+      for (let index = 0; index < missing.length; index++) {
+        const question = missing[index];
+        const text = translations[index] ?? question.text;
+        const existing = await prisma.questionTranslation.findFirst({
+          where: { questionId: question.id, language },
+          select: { id: true },
+        });
+        if (existing) {
+          await prisma.questionTranslation.update({ where: { id: existing.id }, data: { text } });
+        } else {
+          await prisma.questionTranslation.create({
+            data: { questionId: question.id, language, text, source: 'AUTO' },
+          });
+        }
+      }
+      missing.forEach((question, index) => {
+        stored[question.id] = stored[question.id] ?? {};
+        stored[question.id][language] = translations[index] ?? question.text;
+      });
+    }
+
+    const surveyFields = await translateSurveyFields(
+      {
+        title: qr.survey.title,
+        topic: qr.survey.topic,
+        description: qr.survey.description,
+      },
+      language,
+    );
+
+    return ok({
+      language,
+      survey: surveyFields,
+      questions: stored,
+    });
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * POST /api/public/translate — on-demand translation of an arbitrary string
+ * (used for dynamically generated AI follow-up questions).
+ */
+export async function POST_PUBLIC_TRANSLATE(request: NextRequest) {
+  try {
+    const body = await readJson(
+      request,
+      z.object({
+        token: z.string().min(8).max(120),
+        language: z.string().min(2).max(12),
+        texts: z.array(z.string().min(1).max(600)).min(1).max(20),
+      }),
+    );
+    enforceRateLimit(`translate:${getIp(request)}`, 60, 60_000, "Too many translation requests.");
+    await resolvePublicToken(body.token);
+    const { translations, provider, warnings } = await translateBatch(
+      body.texts,
+      body.language,
+      "Interview follow-up question.",
+    );
+    return ok({ translations, provider, warnings });
+  } catch (error) {
+    return fail(error);
+  }
+}

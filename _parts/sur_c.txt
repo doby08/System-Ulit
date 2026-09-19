@@ -1,0 +1,99 @@
+/**
+ * Publishes a survey: freezes the current question set as an immutable version,
+ * stamps every question with that version id and returns the created version.
+ * Existing respondents/sessions keep the version they started with.
+ */
+export async function publishSurvey(
+  userId: string,
+  surveyId: string,
+  options: { meta?: ActorMeta; changeNote?: string | null; forceNewVersion?: boolean } = {},
+) {
+  const survey = await getSurveyOr404(surveyId);
+  if (!survey.questions.length) {
+    throw new ApiError("Add at least one question before publishing this survey.", 400, {
+      code: "NO_QUESTIONS",
+    });
+  }
+  if (survey.questions.length > MAX_QUESTIONS_PER_SURVEY) {
+    throw new ApiError(
+      `A survey can contain a maximum of ${MAX_QUESTIONS_PER_SURVEY} questions.`,
+      400,
+      { code: "TOO_MANY_QUESTIONS" },
+    );
+  }
+
+  const alreadyPublished = survey.publishedAt !== null;
+  const versionNumber =
+    options.forceNewVersion || alreadyPublished ? survey.version + 1 : Math.max(1, survey.version);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const snapshot = buildVersionSnapshot(
+      {
+        title: survey.title,
+        description: survey.description,
+        stakeholder: survey.stakeholder,
+        topic: survey.topic,
+        interviewMethod: survey.interviewMethod,
+        interviewMode: survey.interviewMode,
+        language: survey.language,
+        settings: survey.settings,
+      },
+      survey.questions as unknown as QuestionRecord[],
+    );
+
+    const version = await tx.surveyVersion.create({
+      data: {
+        surveyId,
+        version: versionNumber,
+        title: survey.title,
+        topic: survey.topic,
+        description: survey.description,
+        stakeholder: survey.stakeholder,
+        interviewMethod: survey.interviewMethod,
+        interviewMode: survey.interviewMode,
+        language: survey.language,
+        settings: survey.settings,
+        snapshot: JSON.stringify(snapshot),
+        changeNote:
+          options.changeNote ?? (alreadyPublished ? "Question set updated" : "Initial publication"),
+        publishedAt: new Date(),
+        createdById: userId,
+      },
+    });
+
+    await tx.surveyQuestion.updateMany({ where: { surveyId }, data: { versionId: version.id } });
+
+    const updatedSurvey = await tx.survey.update({
+      where: { id: surveyId },
+      data: {
+        status: "PUBLISHED",
+        publishedAt: survey.publishedAt ?? new Date(),
+        version: versionNumber,
+        questionCount: survey.questions.length,
+      },
+      include: {
+        questions: { orderBy: { order: "asc" } },
+        versions: { orderBy: { version: "desc" } },
+        qrTokens: { orderBy: { createdAt: "desc" } },
+        createdBy: { select: { id: true, fullName: true } },
+        _count: {
+          select: { responses: true, respondents: true, sessions: true, questions: true, qrTokens: true },
+        },
+      },
+    });
+
+    return { survey: updatedSurvey, version };
+  });
+
+  await logAudit({
+    action: "SURVEY_PUBLISHED",
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    details: { version: versionNumber, questions: survey.questions.length },
+    ip: options.meta?.ip,
+    userAgent: options.meta?.userAgent,
+  });
+
+  return result;
+}

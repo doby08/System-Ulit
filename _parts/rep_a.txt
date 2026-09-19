@@ -1,0 +1,27 @@
+/**
+ * Report content builder — assembles Summary / Detailed / Comparative reports
+ * from live analytics and persists the generated report to the database.
+ */
+import { prisma } from "@/lib/prisma";
+import { parseSurveySettings } from "@/lib/settings";
+import { interviewMethodMeta, interviewModeMeta, languageLabel } from "@/lib/constants";
+import { likertLabels } from "@/lib/likert";
+import { analyzeOpenEnded } from "@/lib/ai/insights";
+import {
+  getOverviewMetrics,
+  getQuestionAnalyticsDetail,
+  getSurveyAnalytics,
+} from "@/lib/server/analytics";
+import type {
+  AnalyticsFilters,
+  ReportContent,
+  ReportQuestionRow,
+} from "@/lib/types-analytics";
+
+export async function buildReportContent(params: {
+  surveyId: string;
+  reportType: "SUMMARY" | "DETAILED" | "COMPARATIVE";
+  title?: string;
+  generatedBy: string;
+  filters?: AnalyticsFilters;
+}): Promise<ReportContent> {

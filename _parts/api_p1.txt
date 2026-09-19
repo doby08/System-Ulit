@@ -1,0 +1,66 @@
+import { NextRequest } from "next/server";
+import { buildPublicSurveyPayload } from "@/lib/server/public-survey";
+import { enforceRateLimit, fail, getIp, ok } from "@/lib/server/api";
+import { ApiError } from "@/lib/server/api";
+import { prisma } from "@/lib/prisma";
+import { resolvePublicToken } from "@/lib/server/qr";
+import { parseVersionSnapshot, questionsFromSnapshot } from "@/lib/server/questions";
+
+type Context = { params: Promise<{ token: string }> };
+
+/**
+ * GET /api/public/survey/[token] — prepared survey for respondents.
+ * Exposes only public fields; no admin credentials or internal database data.
+ */
+export async function GET_SURVEY(request: NextRequest, { params }: Context) {
+  try {
+    const { token } = await params;
+    enforceRateLimit(
+      `survey:${getIp(request)}`,
+      120,
+      60_000,
+      "Too many requests. Please slow down.",
+    );
+    const payload = await buildPublicSurveyPayload(token);
+    return ok(payload);
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * POST /api/public/survey/[token] — offline cache check for the PWA.
+ * Returns a compact flag set so the SW can decide cache freshness.
+ */
+export async function HEAD_SURVEY(request: NextRequest, { params }: Context) {
+  try {
+    const { token } = await params;
+    const qr = await resolvePublicToken(token);
+    let questionCount = 0;
+    if (qr.versionId) {
+      const version = await prisma.surveyVersion.findUnique({
+        where: { id: qr.versionId },
+        select: { snapshot: true },
+      });
+      const snapshot = parseVersionSnapshot(version?.snapshot ?? null);
+      questionCount = snapshot?.questions?.length ?? 0;
+    }
+    if (!questionCount) {
+      questionCount = await prisma.surveyQuestion.count({ where: { surveyId: qr.surveyId } });
+    }
+    return ok({
+      available: true,
+      surveyId: qr.surveyId,
+      version: qr.version?.version ?? qr.survey.version,
+      questionCount,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      return ok({ available: false, code: error.code ?? "UNAVAILABLE" });
+    }
+    return fail(error);
+  }
+}
+
+export { questionsFromSnapshot };

@@ -1,0 +1,122 @@
+export async function getSurveyAnalytics(filters: AnalyticsFilters = {}) {
+  const where = buildResponseWhere(filters);
+  const cap = filters.surveyId ? 20000 : 8000;
+
+  const [responses, surveys] = await Promise.all([
+    prisma.response.findMany({
+      where,
+      take: cap,
+      orderBy: { submittedAt: "asc" },
+      select: {
+        id: true,
+        surveyId: true,
+        language: true,
+        status: true,
+        source: true,
+        submittedAt: true,
+        survey: {
+          select: {
+            id: true,
+            title: true,
+            topic: true,
+            interviewMethod: true,
+            interviewMode: true,
+          },
+        },
+        respondent: { select: { respondentGroup: true } },
+        answers: {
+          select: {
+            questionId: true,
+            valueText: true,
+            valueNumber: true,
+            valueOption: true,
+            valueOptions: true,
+            valueBool: true,
+            aiSentiment: true,
+            aiKeywords: true,
+          },
+        },
+      },
+    }),
+    prisma.survey.findMany({
+      where: filters.surveyId ? { id: filters.surveyId } : {},
+      select: {
+        id: true,
+        title: true,
+        topic: true,
+        stakeholder: true,
+        interviewMethod: true,
+        interviewMode: true,
+        language: true,
+        version: true,
+      },
+    }),
+  ]);
+
+  const overview = await getOverviewMetrics(filters);
+  const trend = buildTrend(
+    responses.map((r) => ({ submittedAt: r.submittedAt, status: r.status })),
+    filters.from,
+    filters.to,
+  );
+
+  const byMethod = methodDistribution(
+    countBy(responses, (r) => r.survey?.interviewMethod ?? null),
+  );
+  const byMode = modeDistribution(countBy(responses, (r) => r.survey?.interviewMode ?? null));
+  const byGroup = toDistribution(
+    [...countBy(responses, (r) => r.respondent?.respondentGroup ?? null).entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([label, value]) => ({ label, value })),
+  );
+  const byLanguage = toDistribution(
+    [...countBy(responses, (r) => r.language).entries()].map(([label, value]) => ({
+      label,
+      value,
+    })),
+  );
+  const byDate = toDistribution(
+    trend.slice(-14).map((point) => ({ label: point.date.slice(5), value: point.responses })),
+  );
+
+  const sentimentCounts = new Map<string, number>([
+    ["Positive", 0],
+    ["Neutral", 0],
+    ["Negative", 0],
+  ]);
+  for (const response of responses) {
+    for (const answer of response.answers) {
+      const sentiment = (answer.aiSentiment ?? "").toUpperCase();
+      if (sentiment === "POSITIVE") sentimentCounts.set("Positive", 1 + (sentimentCounts.get("Positive") ?? 0));
+      else if (sentiment === "NEGATIVE") sentimentCounts.set("Negative", 1 + (sentimentCounts.get("Negative") ?? 0));
+      else if (answer.valueText && answer.valueText.trim().length > 1)
+        sentimentCounts.set("Neutral", 1 + (sentimentCounts.get("Neutral") ?? 0));
+    }
+  }
+  const sentiment = toDistribution(
+    [...sentimentCounts.entries()].map(([label, value]) => ({ label, value })),
+  );
+
+  const statusMix = toDistribution(
+    [...countBy(responses, (r) => r.status).entries()].map(([label, value]) => ({
+      label: label === "COMPLETE" ? "Completed" : "Partial",
+      value,
+    })),
+  );
+
+  return {
+    overview,
+    trend,
+    byMethod,
+    byMode,
+    byGroup,
+    byLanguage,
+    byDate,
+    sentiment,
+    statusMix,
+    questions: [] as ReturnType<typeof buildQuestionAnalytics>[],
+    keywords: [] as { keyword: string; count: number; sentiment: string }[],
+    surveys: surveys.map((s) => ({ id: s.id, title: s.title })),
+  };
+}

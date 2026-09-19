@@ -1,0 +1,146 @@
+async function seedResponses() {
+  const existing = await prisma.response.count();
+  if (existing > 0) return existing;
+
+  const surveys = await prisma.survey.findMany({
+    where: { status: "PUBLISHED" },
+    include: { questions: { orderBy: { order: "asc" } } },
+  });
+
+  let created = 0;
+  const ageGroups = ["18–24", "25–34", "35–44", "45–54"];
+  const names = ["Maria Santos", "Jose Dela Cruz", "Ana Reyes", "Mark Villanueva", "Liza Ramos"];
+
+  for (const survey of surveys) {
+    const questions = survey.questions;
+    if (!questions.length) continue;
+    const likert = questions.filter((q) => q.type === "LIKERT_5" || q.type === "LIKERT_7");
+
+    for (let i = 0; i < 8; i++) {
+      const respondentCode = `SEED-${survey.id.slice(0, 4).toUpperCase()}-${String(i + 1).padStart(2, "0")}`;
+      const respondent = await prisma.respondent.create({
+        data: {
+          respondentCode,
+          name: names[i % names.length],
+          ageGroup: ageGroups[i % ageGroups.length],
+          gender: i % 2 === 0 ? "Female" : "Male",
+          respondentGroup: survey.respondentGroup,
+          language: survey.language,
+          surveyId: survey.id,
+        },
+      });
+
+      const session = await prisma.interviewSession.create({
+        data: {
+          sessionCode: `SEED-SES-${survey.id.slice(0, 4).toUpperCase()}-${String(i + 1).padStart(2, "0")}`,
+          surveyId: survey.id,
+          respondentId: respondent.id,
+          mode: survey.interviewMode,
+          status: "COMPLETED",
+          completedAt: new Date(Date.now() - i * 86_400_000),
+          startedAt: new Date(Date.now() - i * 86_400_000 - 12 * 60_000),
+          device: "Seed script",
+          networkState: "ONLINE",
+        },
+      });
+
+      const positivity = (i % 5) / 4;
+
+      const response = await prisma.response.create({
+        data: {
+          clientResponseId: `seed-response-${survey.id.slice(0, 8)}-${i}`,
+          surveyId: survey.id,
+          sessionId: session.id,
+          respondentId: respondent.id,
+          language: survey.language,
+          status: "COMPLETE",
+          source: i % 4 === 3 ? "OFFLINE_SYNC" : "ONLINE",
+          device: "Seed script",
+          networkState: "ONLINE",
+          answersCount: questions.length,
+          totalQuestions: questions.length,
+          completionRate: 100,
+          durationSec: 480 + i * 37,
+          revision: 1,
+          contentHash: `seed-hash-${survey.id.slice(0, 8)}-${i}`,
+          syncStatus: "SYNCED",
+          submittedAt: new Date(Date.now() - i * 86_400_000),
+          syncedAt: new Date(Date.now() - i * 86_400_000 + 60_000),
+        },
+      });
+
+      for (const question of questions) {
+        let valueText: string | null = null;
+        let valueOption: string | null = null;
+        let valueNumber: number | null = null;
+        let valueBool: boolean | null = null;
+
+        if (question.type === "LIKERT_5" || question.type === "LIKERT_7") {
+          const scale = question.type === "LIKERT_7" ? 7 : 5;
+          valueOption = String(Math.round(1 + positivity * (scale - 1)));
+        } else if (question.type === "RATING") {
+          valueOption = String(2 + Math.round(positivity * 3));
+        } else if (question.type === "YES_NO") {
+          valueBool = positivity >= 0.5;
+        } else if (question.type === "MULTIPLE_CHOICE" || question.type === "MULTI_SELECT") {
+          try {
+            const opts = JSON.parse(question.options ?? "[]") as { label: string }[];
+            const first = opts[0]?.label ?? "Option 1";
+            valueOption =
+              question.type === "MULTI_SELECT"
+                ? `${first} | ${opts[1]?.label ?? first}`
+                : first;
+          } catch {
+            valueOption = "Option 1";
+          }
+        } else if (question.type === "NUMBER") {
+          valueNumber = 10 + i;
+        } else if (question.type === "DATE") {
+          valueText = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+        } else {
+          const pool =
+            positivity > 0.6 ? POSITIVE_TEXTS : positivity < 0.4 ? NEGATIVE_TEXTS : NEUTRAL_TEXTS;
+          valueText = pool[(i + questions.indexOf(question)) % pool.length];
+        }
+
+        const answer = await prisma.answer.create({
+          data: {
+            responseId: response.id,
+            questionId: question.id,
+            surveyId: survey.id,
+            respondentId: respondent.id,
+            sessionId: session.id,
+            valueText,
+            valueNumber,
+            valueOption,
+            valueBool,
+          },
+        });
+
+        if (question.type === "LIKERT_5" || question.type === "LIKERT_7") {
+          const scale = question.type === "LIKERT_7" ? 7 : 5;
+          const score = Number(valueOption ?? 3);
+          await prisma.likertResponse.create({
+            data: {
+              answerId: answer.id,
+              surveyId: survey.id,
+              questionId: question.id,
+              respondentId: respondent.id,
+              sessionId: session.id,
+              scale,
+              score,
+              label: String(score),
+              normalized: Number((score / scale).toFixed(4)),
+              isPositive: score > scale / 2,
+            },
+          });
+        }
+      }
+
+      created += 1;
+    }
+  }
+
+  console.log(`[seed] Seeded ${created} sample responses through the database.`);
+  return created;
+}

@@ -1,0 +1,77 @@
+export function mapReportRecord(record: {
+  id: string;
+  surveyId: string;
+  surveyVersion: number | null;
+  reportType: string;
+  title: string;
+  status: string;
+  filters: string | null;
+  summary: string | null;
+  createdById: string;
+  generatedAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  survey?: { id: string; title: string; topic: string } | null;
+  createdBy?: { id: string; fullName: string } | null;
+}) {
+  return {
+    id: record.id,
+    surveyId: record.surveyId,
+    surveyTitle: record.survey?.title ?? "Deleted survey",
+    surveyTopic: record.survey?.topic ?? null,
+    surveyVersion: record.surveyVersion,
+    reportType: record.reportType,
+    reportTypeLabel: reportTypeMeta(record.reportType).label,
+    title: record.title,
+    status: record.status,
+    filters: record.filters,
+    summary: record.summary,
+    createdById: record.createdById,
+    createdByName: record.createdBy?.fullName ?? null,
+    generatedAt: iso(record.generatedAt),
+    createdAt: iso(record.createdAt),
+    updatedAt: iso(record.updatedAt),
+  };
+}
+
+export type ReportDTO = ReturnType<typeof mapReportRecord>;
+
+export function mapSyncRecordEntry(record: {
+  id: string;
+  surveyId: string | null;
+  responseId: string | null;
+  clientResponseId: string | null;
+  deviceId: string | null;
+  direction: string;
+  status: string;
+  attempt: number;
+  message: string | null;
+  resolution: string | null;
+  resolvedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  survey?: { id: string; title: string } | null;
+  response?: { id: string; submittedAt: Date; source: string; answersCount: number } | null;
+}) {
+  return {
+    id: record.id,
+    surveyId: record.surveyId,
+    surveyTitle: record.survey?.title ?? null,
+    responseId: record.responseId,
+    clientResponseId: record.clientResponseId,
+    deviceId: record.deviceId,
+    direction: record.direction,
+    status: record.status,
+    attempt: record.attempt,
+    message: record.message,
+    resolution: record.resolution,
+    resolvedAt: iso(record.resolvedAt),
+    responseSubmittedAt: iso(record.response?.submittedAt),
+    responseSource: record.response?.source ?? null,
+    answersCount: record.response?.answersCount ?? 0,
+    createdAt: iso(record.createdAt),
+    updatedAt: iso(record.updatedAt),
+  };
+}
+
+export type SyncRecordDTO = ReturnType<typeof mapSyncRecordEntry>;

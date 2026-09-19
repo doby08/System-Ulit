@@ -1,0 +1,111 @@
+/**
+ * Question-level helpers shared by admin and public flows: DTO mapping, Likert
+ * configuration, randomization (Admin-prepared questions only) and version snapshots.
+ */
+import { likertLabels } from "@/lib/likert";
+import { likertScaleFor, QUESTION_TYPE_VALUES } from "@/lib/constants";
+import { parseQuestionOptions } from "@/lib/settings";
+import { seededShuffle, safeJsonParse } from "@/lib/utils";
+import type { PublicQuestion, QuestionDraft, SurveySettings } from "@/lib/types";
+
+export type QuestionRecord = {
+  id: string;
+  surveyId: string;
+  bankItemId: string | null;
+  createdById: string | null;
+  versionId: string | null;
+  order: number;
+  code: string | null;
+  text: string;
+  originalText: string | null;
+  helpText: string | null;
+  type: string;
+  category: string | null;
+  tags: string | null;
+  difficulty: string | null;
+  relevanceScore: number | null;
+  isRequired: boolean;
+  options: string | null;
+  likertScale: number | null;
+  aiGenerated: boolean;
+  aiSource: string | null;
+  allowFollowUp: boolean;
+  isCore: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+/** Admin DTO (includes everything the survey builder UI needs). */
+export function mapQuestionToDraft(question: QuestionRecord): QuestionDraft & { id: string } {
+  return {
+    id: question.id,
+    code: question.code ?? undefined,
+    text: question.text,
+    originalText: question.originalText,
+    helpText: question.helpText,
+    type: question.type,
+    category: question.category,
+    tags: question.tags ? question.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+    difficulty: question.difficulty,
+    relevanceScore: question.relevanceScore,
+    isRequired: question.isRequired,
+    options: parseQuestionOptions(question.options),
+    likertScale: question.likertScale,
+    aiGenerated: question.aiGenerated,
+    aiSource: question.aiSource,
+    allowFollowUp: question.allowFollowUp,
+    isCore: question.isCore,
+    order: question.order,
+  };
+}
+
+export function resolveLikertLabelsFor(
+  question: { type: string; likertScale: number | null; options: string | null },
+  language: string,
+  settings: SurveySettings,
+): string[] | null {
+  if (question.type !== "LIKERT_5" && question.type !== "LIKERT_7") return null;
+  const scale = likertScaleFor(question.type, question.likertScale);
+  const custom = parseQuestionOptions(question.options);
+  if (custom?.length === scale) return custom.map((o) => o.label);
+  const settingsLabels = settings.likert.customLabels;
+  if (settingsLabels?.length === scale) return settingsLabels;
+  return likertLabels(scale, language);
+}
+
+/** Public DTO — never exposes admin/internal fields. */
+export function mapQuestionToPublic(
+  question: QuestionRecord,
+  options: {
+    language: string;
+    settings: SurveySettings;
+    translations?: Record<string, string>;
+    allowFollowUp: boolean;
+  },
+): PublicQuestion {
+  const effectiveText = options.translations?.[options.language] ?? question.text;
+  const labels = resolveLikertLabelsFor(question, options.language, options.settings);
+  const optionList = labels
+    ? labels.map((label, index) => ({ label, value: label, score: index + 1 }))
+    : question.type === "RATING"
+      ? [1, 2, 3, 4, 5].map((n) => ({ label: String(n), value: String(n), score: n }))
+      : parseQuestionOptions(question.options);
+
+  return {
+    id: question.id,
+    code: question.code ?? `Q${question.order}`,
+    order: question.order,
+    text: effectiveText,
+    helpText: question.helpText,
+    type: question.type,
+    category: question.category,
+    isRequired: question.isRequired,
+    options: optionList,
+    likertScale:
+      question.likertScale ?? (question.type === "LIKERT_5" ? 5 : question.type === "LIKERT_7" ? 7 : null),
+    likertLabels: labels,
+    allowFollowUp: options.allowFollowUp && question.allowFollowUp,
+    isFollowUpEnabled: options.allowFollowUp,
+    translations: options.translations ?? {},
+  };
+}

@@ -1,0 +1,72 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi, enforceRateLimit } from "@/lib/server/api";
+import { getSurveyOr404 } from "@/lib/server/surveys";
+import { generateQuestionSet } from "@/lib/ai/questions";
+import { MAX_QUESTIONS_PER_SURVEY } from "@/lib/constants";
+import { z } from "zod";
+
+type Context = { params: Promise<{ id: string }> };
+
+/** POST /api/admin/surveys/[id]/generate — bulk AI generation into the builder. */
+export async function POST_BULK_GENERATE(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  enforceRateLimit(
+    `ai-generate:${user.id}`,
+    10,
+    60_000,
+    "AI generation is rate-limited. Please wait a moment before generating again.",
+  );
+  const body = await readJson(
+    request,
+    z.object({
+      count: z.number().int().min(1).max(MAX_QUESTIONS_PER_SURVEY),
+      difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional().nullable(),
+      questionTypes: z.array(z.string()).max(10).optional(),
+      seed: z.string().max(120).optional(),
+    }),
+  );
+  const survey = await getSurveyOr404(id);
+  const result = await generateQuestionSet({
+    topic: survey.topic,
+    stakeholder: survey.stakeholder,
+    interviewMethod: survey.interviewMethod,
+    interviewMode: survey.interviewMode,
+    language: survey.language,
+    count: body.count,
+    difficulty: body.difficulty ?? null,
+    questionTypes: body.questionTypes ?? null,
+    seed: body.seed ?? `${survey.id}:${Date.now()}`,
+  });
+
+  try {
+    await prisma.questionBankItem.createMany({
+      data: result.questions.map((question) => ({
+        text: question.text,
+        category: question.category ?? "General",
+        type: question.type,
+        tags: question.tags?.join(",") ?? null,
+        difficulty: question.difficulty,
+        relevanceScore: question.relevanceScore,
+        interviewMethod: survey.interviewMethod,
+        language: survey.language,
+        stakeholder: survey.stakeholder,
+        options: question.options ? JSON.stringify(question.options) : null,
+        likertScale: question.likertScale,
+        aiGenerated: true,
+        createdById: user.id,
+      })),
+    });
+  } catch {
+    // bank persistence is a convenience — generation results still return
+  }
+
+  return ok({
+    provider: result.provider,
+    model: result.model ?? null,
+    questions: result.questions,
+    warnings: result.warnings ?? [],
+    fallbackReason: result.fallbackReason ?? null,
+  });
+}

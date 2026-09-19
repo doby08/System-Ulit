@@ -1,0 +1,129 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, requireAdminApi } from "@/lib/server/api";
+import { mapResponseSummary, mapSessionRecord } from "@/lib/server/serializers";
+import { paginationSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/responses — response list with survey/group/method/source filters. */
+export async function GET_RESPONSES(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const surveyId = url.searchParams.get("surveyId") ?? undefined;
+  const group = url.searchParams.get("group") ?? undefined;
+  const method = url.searchParams.get("method") ?? undefined;
+  const source = url.searchParams.get("source") ?? undefined;
+  const status = url.searchParams.get("status") ?? undefined;
+  const search = (url.searchParams.get("search") ?? "").trim();
+
+  const where = {
+    ...(surveyId ? { surveyId } : {}),
+    ...(source ? { source } : {}),
+    ...(status ? { status } : {}),
+    ...(method ? { survey: { interviewMethod: method } } : {}),
+    ...(group ? { respondent: { respondentGroup: group } } : {}),
+    ...(search ? { clientResponseId: { contains: search } } : {}),
+  };
+
+  const [total, items] = await Promise.all([
+    prisma.response.count({ where }),
+    prisma.response.findMany({
+      where,
+      orderBy: { submittedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        survey: { select: { id: true, title: true, interviewMethod: true, interviewMode: true } },
+        respondent: {
+          select: { id: true, name: true, respondentCode: true, respondentGroup: true },
+        },
+        session: { select: { id: true, sessionCode: true, groupName: true, mode: true } },
+      },
+    }),
+  ]);
+  return ok({ items: items.map(mapResponseSummary), total, page, pageSize });
+}
+
+type ResponseContext = { params: Promise<{ responseId: string }> };
+
+/** GET /api/admin/responses/[responseId] — full detail with every answer. */
+export async function GET_RESPONSE(_request: NextRequest, { params }: ResponseContext) {
+  await requireAdminApi();
+  const { responseId } = await params;
+  const record = await prisma.response.findUnique({
+    where: { id: responseId },
+    include: {
+      survey: { select: { id: true, title: true, interviewMethod: true, interviewMode: true } },
+      respondent: true,
+      session: {
+        select: { id: true, sessionCode: true, groupName: true, mode: true, notes: true },
+      },
+      answers: {
+        include: {
+          question: { select: { id: true, code: true, text: true, type: true, category: true } },
+          likert: true,
+        },
+        orderBy: { createdAt: "asc" },
+      },
+      syncRecords: { orderBy: { createdAt: "desc" }, take: 10 },
+    },
+  });
+  if (!record) return ok({ response: null });
+  return ok({
+    response: mapResponseSummary({
+      ...record,
+      respondent: record.respondent
+        ? {
+            id: record.respondent.id,
+            name: record.respondent.name,
+            respondentCode: record.respondent.respondentCode,
+            respondentGroup: record.respondent.respondentGroup,
+          }
+        : null,
+    }),
+    respondent: record.respondent,
+    answers: record.answers,
+    syncRecords: record.syncRecords,
+  });
+}
+
+/** GET /api/admin/sessions — interview sessions incl. group sessions. */
+export async function GET_SESSIONS(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const surveyId = url.searchParams.get("surveyId") ?? undefined;
+  const mode = url.searchParams.get("mode") ?? undefined;
+  const status = url.searchParams.get("status") ?? undefined;
+
+  const where = {
+    ...(surveyId ? { surveyId } : {}),
+    ...(mode ? { mode } : {}),
+    ...(status ? { status } : {}),
+  };
+  const [total, items] = await Promise.all([
+    prisma.interviewSession.count({ where }),
+    prisma.interviewSession.findMany({
+      where,
+      orderBy: { startedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        survey: { select: { id: true, title: true } },
+        respondent: { select: { id: true, name: true, respondentCode: true } },
+        members: true,
+        recording: true,
+        _count: { select: { responses: true, members: true } },
+      },
+    }),
+  ]);
+  return ok({ items: items.map(mapSessionRecord), total, page, pageSize });
+}
+
+export { fail };

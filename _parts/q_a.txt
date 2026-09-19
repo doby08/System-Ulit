@@ -1,0 +1,116 @@
+/**
+ * Question generation orchestrator.
+ * Tries OpenAI (server-side env key) with structured-JSON validation, and always
+ * falls back to the built-in offline engine so the feature works without a key.
+ */
+import { z } from "zod";
+import { aiModel, chatJson, resolveProvider } from "@/lib/ai/provider";
+import {
+  generateQuestionsOffline,
+  generateSingleQuestionOffline,
+  type GenerateOptions,
+} from "@/lib/ai/local-engine";
+import { MAX_QUESTIONS_PER_SURVEY, QUESTION_TYPE_VALUES, languageLabel } from "@/lib/constants";
+import { parseTopic } from "@/lib/ai/frames";
+import type { GeneratedQuestion, GeneratedQuestionSet, QuestionOption } from "@/lib/types";
+
+const optionSchema = z.union([
+  z.string(),
+  z.object({
+    label: z.string(),
+    value: z.string().optional(),
+    score: z.number().optional(),
+  }),
+]);
+
+const aiResponseSchema = z.object({
+  questions: z
+    .array(
+      z.object({
+        text: z.string().min(5).max(600),
+        type: z.string().optional(),
+        category: z.string().optional(),
+        difficulty: z.string().optional(),
+        tags: z.array(z.string()).max(8).optional(),
+        options: z.array(optionSchema).max(12).optional(),
+        relevanceScore: z.number().min(0).max(100).optional(),
+        isRequired: z.boolean().optional(),
+        helpText: z.string().max(400).optional(),
+        likertScale: z.union([z.literal(5), z.literal(7)]).optional(),
+      }),
+    )
+    .min(1)
+    .max(MAX_QUESTIONS_PER_SURVEY),
+});
+
+type AiResponse = z.infer<typeof aiResponseSchema>;
+
+function normalizeType(raw?: string, likertScale?: number | null): string {
+  const value = (raw ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (QUESTION_TYPE_VALUES.includes(value as (typeof QUESTION_TYPE_VALUES)[number])) return value;
+  if (value.includes("LIKERT")) return likertScale === 7 ? "LIKERT_7" : "LIKERT_5";
+  if (value.includes("RATING") || value.includes("SCALE") || value.includes("NPS")) return "RATING";
+  if (value.includes("YES") || value.includes("BOOLEAN")) return "YES_NO";
+  if (value.includes("MULTI") && value.includes("SELECT")) return "MULTI_SELECT";
+  if (value.includes("CHOICE") || value.includes("OPTION")) return "MULTIPLE_CHOICE";
+  if (value.includes("OPEN") || value.includes("ESSAY") || value.includes("LONG")) return "LONG_TEXT";
+  if (value.includes("NUMBER") || value.includes("NUMERIC")) return "NUMBER";
+  if (value.includes("DATE")) return "DATE";
+  return "SHORT_TEXT";
+}
+
+function normalizeOptions(options?: (string | { label: string; value?: string; score?: number })[]) {
+  if (!options?.length) return null;
+  const normalized: QuestionOption[] = [];
+  options.forEach((option, index) => {
+    if (typeof option === "string") {
+      const label = option.trim();
+      if (label) normalized.push({ label, value: label, score: index + 1 });
+      return;
+    }
+    const label = option.label?.trim();
+    if (!label) return;
+    normalized.push({
+      label,
+      value: option.value?.trim() || label,
+      score: typeof option.score === "number" ? option.score : index + 1,
+    });
+  });
+  return normalized.length ? normalized : null;
+}
+
+function normalizeDifficulty(raw?: string): "EASY" | "MEDIUM" | "HARD" {
+  const value = (raw ?? "").toUpperCase();
+  if (value.startsWith("E")) return "EASY";
+  if (value.startsWith("H")) return "HARD";
+  return "MEDIUM";
+}
+
+/** Converts a validated AI row into the internal question shape. */
+function toGeneratedQuestion(
+  row: AiResponse["questions"][number],
+  index: number,
+  language: string,
+): GeneratedQuestion {
+  const type = normalizeType(row.type, row.likertScale ?? null);
+  const likertScale = type === "LIKERT_5" ? 5 : type === "LIKERT_7" ? 7 : null;
+  return {
+    text: row.text.trim(),
+    originalText: language === "en" ? row.text.trim() : null,
+    code: `Q${index + 1}`,
+    order: index + 1,
+    type,
+    category: row.category?.trim() || "General",
+    tags: (row.tags ?? []).map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 8),
+    difficulty: normalizeDifficulty(row.difficulty),
+    relevanceScore: typeof row.relevanceScore === "number" ? Math.round(row.relevanceScore) : 85,
+    isRequired: row.isRequired ?? true,
+    options: type === "YES_NO" ? normalizeOptions(["Yes", "No"]) : normalizeOptions(row.options),
+    likertScale,
+    helpText: row.helpText?.trim() || null,
+    aiGenerated: true,
+    aiSource: "openai",
+    allowFollowUp: false,
+    isCore: true,
+  };
+}

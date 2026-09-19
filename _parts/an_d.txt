@@ -1,0 +1,134 @@
+export type QuestionAggregateInput = {
+  questionId: string;
+  code: string;
+  text: string;
+  type: string;
+  category: string | null;
+  totalResponses: number;
+  answers: {
+    valueText: string | null;
+    valueNumber: number | null;
+    valueOption: string | null;
+    valueOptions: string | null;
+    valueBool: boolean | null;
+    aiSentiment: string | null;
+    aiKeywords: string | null;
+  }[];
+  likertScores: number[];
+  likertScale: number;
+};
+
+export function buildQuestionAnalytics(input: QuestionAggregateInput) {
+  const answered = input.answers.length;
+  const skipped = Math.max(0, input.totalResponses - answered);
+
+  const base = {
+    questionId: input.questionId,
+    code: input.code,
+    text: input.text,
+    type: input.type,
+    category: input.category,
+    answered,
+    skipped,
+    answerRate: input.totalResponses
+      ? round((answered / input.totalResponses) * 100, 1)
+      : 0,
+    likert: null as null | {
+      scale: number;
+      average: number;
+      normalizedPercent: number;
+      interpretation: string;
+      distribution: DistributionPoint[];
+      positive: number;
+      neutral: number;
+      negative: number;
+    },
+    distribution: [] as DistributionPoint[],
+    numeric: null as null | { average: number; min: number; max: number },
+    textInsights: null as null | { samples: number },
+    sampleAnswers: [] as string[],
+  };
+
+  if (input.type === "LIKERT_5" || input.type === "LIKERT_7") {
+    const summary = likertSummary(input.likertScores, input.likertScale);
+    base.likert = {
+      scale: summary.scale,
+      average: summary.average,
+      normalizedPercent: summary.normalizedPercent,
+      interpretation: summary.interpretation,
+      distribution: summary.distribution.map((d) => ({
+        label: d.label,
+        value: d.count,
+        percentage: d.percentage,
+      })),
+      positive: summary.positive.percentage,
+      neutral: summary.neutral.percentage,
+      negative: summary.negative.percentage,
+    };
+    base.distribution = base.likert.distribution;
+    return base;
+  }
+
+  if (input.type === "RATING" || input.type === "NUMBER") {
+    const numbers = input.answers
+      .map((a) =>
+        input.type === "RATING"
+          ? Number(a.valueOption ?? a.valueText ?? a.valueNumber ?? Number.NaN)
+          : Number(a.valueNumber ?? a.valueText ?? Number.NaN),
+      )
+      .filter((n) => Number.isFinite(n));
+    if (numbers.length) {
+      base.numeric = {
+        average: round(average(numbers), 2),
+        min: Math.min(...numbers),
+        max: Math.max(...numbers),
+      };
+    }
+    const counts = countBy(numbers, (n) => `${n}`);
+    base.distribution = toDistribution(
+      [...counts.entries()]
+        .sort((a, b) => Number(a[0]) - Number(b[0]))
+        .map(([label, value]) => ({ label, value })),
+    );
+    return base;
+  }
+
+  if (
+    input.type === "YES_NO" ||
+    input.type === "MULTIPLE_CHOICE" ||
+    input.type === "MULTI_SELECT"
+  ) {
+    const values: string[] = [];
+    for (const answer of input.answers) {
+      if (answer.valueBool === true) values.push("Yes");
+      else if (answer.valueBool === false) values.push("No");
+      if (answer.valueOption) values.push(answer.valueOption);
+      if (answer.valueOptions) {
+        for (const piece of answer.valueOptions.split("|")) {
+          const trimmed = piece.trim();
+          if (trimmed) values.push(trimmed);
+        }
+      }
+      if (input.type === "YES_NO") {
+        const text = (answer.valueText ?? "").trim().toLowerCase();
+        if (["yes", "y", "oo", "wen"].includes(text)) values.push("Yes");
+        else if (["no", "n", "hindi", "saan", "haan"].includes(text)) values.push("No");
+      }
+    }
+    const counts = countBy(values, (v) => v);
+    base.distribution = toDistribution(
+      [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, value]) => ({ label, value })),
+    );
+    return base;
+  }
+
+  const samples = input.answers
+    .map((a) => (a.valueText ?? "").trim())
+    .filter((t) => t.length > 0)
+    .slice(0, 8);
+  base.sampleAnswers = samples;
+  if (samples.length) base.textInsights = { samples: answered };
+  return base;
+}

@@ -1,0 +1,49 @@
+function seedToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(18));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function seedQrTokens(adminId: string) {
+  const tokenCount = await prisma.qRToken.count();
+  if (tokenCount > 0) return tokenCount;
+  const published = await prisma.survey.findMany({
+    where: { status: "PUBLISHED" },
+    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+  });
+  for (const survey of published) {
+    await prisma.qRToken.create({
+      data: {
+        surveyId: survey.id,
+        versionId: survey.versions[0]?.id ?? null,
+        token: seedToken(),
+        label: `Seed QR — ${survey.title}`,
+        language: survey.language,
+        createdById: adminId,
+      },
+    });
+  }
+  console.log(`[seed] Seeded QR tokens for ${published.length} surveys.`);
+  return published.length;
+}
+
+const POSITIVE_TEXTS = [
+  "The staff were very accommodating and the process was fast.",
+  "Easy to access and the online system works smoothly.",
+  "Clean facilities and the personnel explained everything clearly.",
+  "I am satisfied with the service. Everything was organised.",
+  "Responsive and professional. My concern was resolved the same day.",
+];
+const NEGATIVE_TEXTS = [
+  "The queue was too long and there were no clear instructions.",
+  "Slow processing and the website was down when I checked.",
+  "Staff were unhelpful and my documents were returned twice.",
+  "Difficult to reach the office and waiting time was unacceptable.",
+  "Confusing requirements and poor communication about the schedule.",
+];
+const NEUTRAL_TEXTS = [
+  "The service was okay. Nothing remarkable but nothing bad either.",
+  "It took about an hour. The process was standard.",
+  "Facilities are fine. Some steps could be clearer.",
+];

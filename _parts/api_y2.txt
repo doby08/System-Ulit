@@ -1,0 +1,87 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapAuditEntry } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { paginationSchema, appSettingsSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/audit — audit trail. */
+export async function GET_AUDIT(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const action = url.searchParams.get("action") ?? undefined;
+  const entity = url.searchParams.get("entity") ?? undefined;
+  const severity = url.searchParams.get("severity") ?? undefined;
+
+  const where = {
+    ...(action ? { action } : {}),
+    ...(entity ? { entity } : {}),
+    ...(severity ? { severity } : {}),
+  };
+  const [total, items] = await Promise.all([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
+  return ok({ items: items.map(mapAuditEntry), total, page, pageSize });
+}
+
+/** GET /api/admin/settings — app settings + AI provider status. */
+export async function GET_APP_SETTINGS() {
+  await requireAdminApi();
+  const settings = await prisma.appSetting.findMany({ orderBy: { key: "asc" } });
+  const adminCount = await prisma.user.count();
+  const hasKey = Boolean(process.env.OPENAI_API_KEY);
+  return ok({
+    settings: settings.map((s) => ({
+      key: s.key,
+      value: s.value,
+      updatedAt: s.updatedAt.toISOString(),
+    })),
+    ai: {
+      provider: hasKey ? "openai" : "offline-engine",
+      model: process.env.AI_MODEL ?? "gpt-4o-mini",
+      keyConfigured: hasKey,
+      translationSupport: hasKey ? "full" : "phrase-assisted",
+    },
+    database: {
+      provider: (process.env.DATABASE_URL ?? "").startsWith("postgres")
+        ? "postgresql"
+        : "sqlite",
+    },
+    adminCount,
+  });
+}
+
+/** PATCH /api/admin/settings — upsert app settings (audited). */
+export async function PATCH_APP_SETTINGS(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, appSettingsSchema);
+  for (const entry of body.settings) {
+    await prisma.appSetting.upsert({
+      where: { key: entry.key },
+      create: { key: entry.key, value: entry.value, updatedById: user.id },
+      update: { value: entry.value, updatedById: user.id },
+    });
+  }
+  await logAudit({
+    action: "SETTINGS_UPDATED",
+    entity: "AppSetting",
+    entityId: null,
+    actorId: user.id,
+    actorName: user.username,
+    details: body,
+  });
+  const settings = await prisma.appSetting.findMany({ orderBy: { key: "asc" } });
+  return ok({ settings: settings.map((s) => ({ key: s.key, value: s.value })) });
+}
+
+export { fail };

@@ -1,0 +1,111 @@
+export function splitSentences(text: string): string[] {
+  return text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?;])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 2);
+}
+
+export function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s'-]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.replace(/^['-]+|['-]+$/g, ""))
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t) && !/^\d+$/.test(t));
+}
+
+const POSITIVE_SET = new Set(POSITIVE_WORDS);
+const NEGATIVE_SET = new Set(NEGATIVE_WORDS);
+const NEGATION_SET = new Set(NEGATION_WORDS);
+
+/** Lexicon sentiment score for a span of text (negation-aware). */
+export function scoreText(text: string) {
+  const tokens = tokenize(text);
+  const positive: string[] = [];
+  const negative: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const prev = tokens[i - 1];
+    const negated = prev ? NEGATION_SET.has(prev) : false;
+    if (POSITIVE_SET.has(token)) {
+      if (negated) negative.push(token);
+      else positive.push(token);
+    } else if (NEGATIVE_SET.has(token)) {
+      if (negated) positive.push(token);
+      else negative.push(token);
+    }
+  }
+  const raw = positive.length - negative.length;
+  const magnitude = positive.length + negative.length;
+  const normalized = magnitude ? Math.max(-1, Math.min(1, raw / Math.sqrt(magnitude + 1))) : 0;
+  const score = raw >= 0 ? normalized * 0.55 + Math.min(0.45, magnitude * 0.12) : normalized * 0.55 - Math.min(0.45, magnitude * 0.12);
+  return { score: Number(score.toFixed(3)), positive, negative, magnitude };
+}
+
+export function classifySentiment(score: number): "POSITIVE" | "NEUTRAL" | "NEGATIVE" {
+  if (score >= 0.18) return "POSITIVE";
+  if (score <= -0.18) return "NEGATIVE";
+  return "NEUTRAL";
+}
+
+export function containsCue(text: string, cues: string[]): boolean {
+  const lower = text.toLowerCase();
+  return cues.some((cue) => lower.includes(cue));
+}
+
+export function detectThemes(text: string): string[] {
+  const lower = text.toLowerCase();
+  return THEME_RULES.filter((rule) => rule.keywords.some((keyword) => lower.includes(keyword))).map(
+    (rule) => rule.theme,
+  );
+}
+
+/** Frequency-ranked unigrams + bigrams (bigrams score higher for readability). */
+export function extractPhrases(texts: string[], limit = 20) {
+  const unigrams = new Map<string, number>();
+  const bigrams = new Map<string, number>();
+  for (const text of texts) {
+    const tokens = tokenize(text);
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+      unigrams.set(token, (unigrams.get(token) ?? 0) + 1);
+      if (i < tokens.length - 1) {
+        const gram = `${token} ${tokens[i + 1]}`;
+        bigrams.set(gram, (bigrams.get(gram) ?? 0) + 1);
+      }
+    }
+  }
+  const combined: { phrase: string; count: number }[] = [];
+  for (const [phrase, count] of bigrams) {
+    if (count >= 2) combined.push({ phrase, count: count + 1 });
+  }
+  for (const [phrase, count] of unigrams) {
+    if (count >= 2) combined.push({ phrase, count });
+  }
+  const seen = new Set<string>();
+  return combined
+    .sort((a, b) => b.count - a.count || a.phrase.localeCompare(b.phrase))
+    .filter((entry) => {
+      const root = entry.phrase.split(" ").pop() ?? entry.phrase;
+      if (seen.has(root)) return false;
+      seen.add(root);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+export function dedupeStrings(values: string[], limit = 8, maxLength = 220) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const clean = value.replace(/\s+/g, " ").trim();
+    if (clean.length < 6) continue;
+    const key = clean.toLowerCase().slice(0, 80);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}…` : clean);
+    if (out.length >= limit) break;
+  }
+  return out;
+}

@@ -1,0 +1,43 @@
+function methodGuidance(method: string) {
+  if (method === "STRUCTURED") {
+    return "The interview is STRUCTURED: use closed question types (LIKERT_5, LIKERT_7, RATING, YES_NO, MULTIPLE_CHOICE, MULTI_SELECT) with at most two SHORT_TEXT items. Questions must be fixed, neutral, non-leading and directly comparable across respondents.";
+  }
+  if (method === "SEMI_STRUCTURED") {
+    return "The interview is SEMI-STRUCTURED: mix core closed questions (Likert/Rating/Yes-No/Choice) with a few open probes (SHORT_TEXT/LONG_TEXT) that invite elaboration and can be followed up by the interviewer.";
+  }
+  return "The interview is UNSTRUCTURED: write conversational, open-ended prompts (mostly LONG_TEXT) that encourage a narrative answer, while keeping 3-6 anchoring scale items so responses can still be quantified.";
+}
+
+function systemPrompt(options: GenerateOptions) {
+  return [
+    "You are a senior research instrument designer for a university/institutional survey platform.",
+    "Produce survey/interview questions that are neutral, unambiguous, culturally appropriate and free of leading language.",
+    "Return STRICT JSON only, matching this shape:",
+    '{"questions":[{"text":"string","type":"LIKERT_5|LIKERT_7|RATING|YES_NO|MULTIPLE_CHOICE|MULTI_SELECT|SHORT_TEXT|LONG_TEXT|NUMBER|DATE","category":"string","difficulty":"EASY|MEDIUM|HARD","tags":["string"],"options":["string"],"relevanceScore":0-100,"isRequired":true,"helpText":"string","likertScale":5}]}',
+    methodGuidance(options.interviewMethod),
+    `Interview mode: ${options.interviewMode}.`,
+    `Write every question in ${languageLabel(options.language)} (language code: ${options.language}). Translate meaning and intent naturally — never translate word-by-word — and keep organisational or proper nouns unchanged.`,
+    "Cover these dimensions where relevant: satisfaction, service quality, accessibility, communication, staff support, facilities, digital experience, process efficiency, awareness, trust, improvement and recommendation.",
+    "Questions must be answerable by the stated stakeholder group and must reference the given topic explicitly.",
+  ].join("\n");
+}
+
+function userPrompt(options: GenerateOptions) {
+  const ctx = parseTopic(options.topic, options.stakeholder);
+  return [
+    `Topic: ${options.topic}`,
+    `Core subject being evaluated: ${ctx.subject}`,
+    `Stakeholder / respondent type: ${options.stakeholder}`,
+    `Interview method: ${options.interviewMethod}`,
+    `Interview mode: ${options.interviewMode}`,
+    `Language: ${languageLabel(options.language)} (${options.language})`,
+    options.difficulty ? `Preferred difficulty: ${options.difficulty}` : "",
+    options.questionTypes?.length ? `Allowed question types: ${options.questionTypes.join(", ")}` : "",
+    `Generate exactly ${Math.min(options.count, MAX_QUESTIONS_PER_SURVEY)} unique questions (never exceed ${MAX_QUESTIONS_PER_SURVEY}).`,
+    "Do not include the topic name as a question. Do not number the questions in the text.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export type GenerateResult = GeneratedQuestionSet & { fallbackReason?: string };

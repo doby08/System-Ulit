@@ -1,0 +1,117 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapRespondentRecord, mapResponseSummary } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { respondentSchema } from "@/lib/server/validation";
+
+type RespondentContext = { params: Promise<{ respondentId: string }> };
+
+/** GET /api/admin/respondents/[respondentId] — profile + responses + sessions. */
+export async function GET_RESPONDENT(_request: NextRequest, { params }: RespondentContext) {
+  await requireAdminApi();
+  const { respondentId } = await params;
+  const record = await prisma.respondent.findUnique({
+    where: { id: respondentId },
+    include: {
+      survey: { select: { id: true, title: true } },
+      responses: {
+        orderBy: { submittedAt: "desc" },
+        take: 30,
+        include: {
+          survey: { select: { id: true, title: true, interviewMethod: true, interviewMode: true } },
+          session: { select: { id: true, sessionCode: true, groupName: true, mode: true } },
+        },
+      },
+      sessions: {
+        orderBy: { startedAt: "desc" },
+        take: 20,
+        select: {
+          id: true,
+          sessionCode: true,
+          surveyId: true,
+          groupName: true,
+          status: true,
+          startedAt: true,
+        },
+      },
+      _count: { select: { responses: true, sessions: true } },
+    },
+  });
+  if (!record) return ok({ respondent: null });
+  return ok({
+    respondent: mapRespondentRecord(record),
+    responses: record.responses.map((response) =>
+      mapResponseSummary({
+        ...response,
+        respondentId: record.id,
+        respondent: {
+          id: record.id,
+          name: record.name,
+          respondentCode: record.respondentCode,
+          respondentGroup: record.respondentGroup,
+        },
+      }),
+    ),
+    sessions: record.sessions,
+  });
+}
+
+/** PATCH /api/admin/respondents/[respondentId] — update profile fields. */
+export async function PATCH_RESPONDENT(request: NextRequest, { params }: RespondentContext) {
+  const user = await requireAdminApi();
+  const { respondentId } = await params;
+  const body = await readJson(request, respondentSchema.partial());
+  const updated = await prisma.respondent.update({
+    where: { id: respondentId },
+    data: {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.ageGroup !== undefined ? { ageGroup: body.ageGroup } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.location !== undefined ? { location: body.location } : {}),
+      ...(body.organization !== undefined ? { organization: body.organization } : {}),
+      ...(body.email !== undefined ? { email: body.email === "" ? null : body.email } : {}),
+      ...(body.phone !== undefined ? { phone: body.phone } : {}),
+      ...(body.respondentGroup !== undefined ? { respondentGroup: body.respondentGroup } : {}),
+      ...(body.language !== undefined ? { language: body.language } : {}),
+      ...(body.device !== undefined ? { device: body.device } : {}),
+      ...(body.notes !== undefined ? { notes: body.notes } : {}),
+      ...(body.surveyId !== undefined ? { surveyId: body.surveyId } : {}),
+      ...(body.demographics !== undefined
+        ? { demographics: body.demographics ? JSON.stringify(body.demographics) : null }
+        : {}),
+    },
+    include: {
+      survey: { select: { id: true, title: true } },
+      _count: { select: { responses: true, sessions: true } },
+    },
+  });
+  await logAudit({
+    action: "RESPONDENT_UPDATED",
+    entity: "Respondent",
+    entityId: respondentId,
+    actorId: user.id,
+    actorName: user.username,
+    details: body,
+  });
+  return ok(mapRespondentRecord(updated));
+}
+
+/** DELETE /api/admin/respondents/[respondentId] — remove a respondent record. */
+export async function DELETE_RESPONDENT(_request: NextRequest, { params }: RespondentContext) {
+  const user = await requireAdminApi();
+  const { respondentId } = await params;
+  await prisma.respondent.delete({ where: { id: respondentId } });
+  await logAudit({
+    action: "RESPONDENT_DELETED",
+    entity: "Respondent",
+    entityId: respondentId,
+    actorId: user.id,
+    actorName: user.username,
+    severity: "WARNING",
+    details: null,
+  });
+  return ok({ deleted: true });
+}
+
+export { fail };

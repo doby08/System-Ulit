@@ -1,0 +1,90 @@
+/**
+ * Admin-side input validation schemas (Zod). Every mutating API route validates
+ * its payload here before touching the database.
+ */
+import { z } from "zod";
+import { surveySettingsSchema } from "@/lib/settings";
+import { INTERVIEW_METHOD_VALUES, INTERVIEW_MODE_VALUES, QUESTION_TYPE_VALUES } from "@/lib/constants";
+
+export const optionalText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .optional()
+    .nullable()
+    .transform((value) => (value === undefined || value === null || value.trim() === "" ? null : value.trim()));
+
+export const optionalDate = z
+  .union([z.string(), z.date(), z.null()])
+  .optional()
+  .transform((value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  });
+
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(20),
+});
+
+/* ------------------------------- Questions -------------------------------- */
+export const questionOptionInput = z.object({
+  label: z.string().min(1).max(300),
+  value: z.string().max(300).optional(),
+  score: z.number().optional(),
+});
+
+export const questionInputSchema = z.object({
+  id: z.string().optional(),
+  code: z.string().max(16).optional().nullable(),
+  text: z.string().min(3).max(1000),
+  originalText: optionalText(1000),
+  helpText: optionalText(500),
+  type: z.enum(QUESTION_TYPE_VALUES as [string, ...string[]]),
+  category: optionalText(80),
+  tags: z.array(z.string().max(40)).max(12).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional().nullable(),
+  relevanceScore: z.number().int().min(0).max(100).optional().nullable(),
+  isRequired: z.boolean().optional(),
+  options: z.array(questionOptionInput).max(24).optional().nullable(),
+  likertScale: z.union([z.literal(5), z.literal(7)]).optional().nullable(),
+  aiGenerated: z.boolean().optional(),
+  aiSource: optionalText(60),
+  allowFollowUp: z.boolean().optional(),
+  isCore: z.boolean().optional(),
+  order: z.number().int().min(1).max(200).optional(),
+});
+
+export const questionReorderSchema = z.object({
+  order: z
+    .array(z.object({ id: z.string().min(4), order: z.number().int().min(1).max(200) }))
+    .min(1)
+    .max(60),
+});
+
+/* -------------------------------- Surveys --------------------------------- */
+export const surveyCreateSchema = z.object({
+  title: z.string().min(3).max(200),
+  topic: z.string().min(3).max(400),
+  description: z.string().max(3000).default(""),
+  stakeholder: z.string().min(2).max(160),
+  interviewMethod: z.enum(INTERVIEW_METHOD_VALUES as [string, ...string[]]),
+  interviewMode: z.enum(INTERVIEW_MODE_VALUES as [string, ...string[]]),
+  language: z.string().min(2).max(12).default("en"),
+  respondentGroup: optionalText(160),
+  location: optionalText(200),
+  startsAt: optionalDate,
+  expiresAt: optionalDate,
+  targetRespondents: z.number().int().min(0).max(1_000_000).optional().nullable(),
+  settings: surveySettingsSchema.partial().optional(),
+  questions: z.array(questionInputSchema).max(50).optional(),
+  aiProvider: optionalText(40),
+  publish: z.boolean().optional(),
+});
+
+export const surveyUpdateSchema = surveyCreateSchema.partial().extend({
+  status: z.enum(["DRAFT", "PUBLISHED", "CLOSED", "ARCHIVED"]).optional(),
+  questions: z.array(questionInputSchema).max(50).optional(),
+  changeNote: optionalText(300),
+});

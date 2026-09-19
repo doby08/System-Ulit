@@ -1,0 +1,40 @@
+const survey = await prisma.survey.findUnique({
+    where: { id: params.surveyId },
+    include: {
+      questions: { orderBy: { order: "asc" } },
+      translations: true,
+    },
+  });
+  if (!survey) throw new Error("Survey not found.");
+
+  const filters: AnalyticsFilters = {
+    ...(params.filters ?? {}),
+    surveyId: params.surveyId,
+  };
+
+  const [analytics, questionDetail, overview] = await Promise.all([
+    getSurveyAnalytics(filters),
+    getQuestionAnalyticsDetail(filters, { includeText: params.reportType !== "SUMMARY" }),
+    getOverviewMetrics(filters),
+  ]);
+
+  const settings = parseSurveySettings(
+    survey.settings,
+    survey.interviewMethod,
+    survey.interviewMode,
+  );
+
+  const questions: ReportQuestionRow[] = questionDetail.map((detail) => ({
+    code: detail.code,
+    text: detail.text,
+    type: detail.type,
+    category: detail.category,
+    answered: detail.answered,
+    answerRate: detail.answerRate,
+    likertAverage: detail.likert?.average ?? null,
+    likertInterpretation: detail.likert?.interpretation ?? null,
+    distribution: detail.distribution.length ? detail.distribution : undefined,
+    sampleAnswers:
+      params.reportType === "SUMMARY" ? undefined : detail.sampleAnswers.slice(0, 6),
+    numericAverage: detail.numeric?.average ?? null,
+  }));

@@ -1,0 +1,38 @@
+/**
+ * Analytics engine — every metric is computed from the central database.
+ * Filters: survey, respondent group, interview method, interview mode,
+ * language and date range.
+ */
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { likertSummary } from "@/lib/likert";
+import { average, round } from "@/lib/utils";
+import { interviewMethodMeta, interviewModeMeta } from "@/lib/constants";
+import type {
+  AnalyticsFilters,
+  DistributionPoint,
+  TrendPoint,
+} from "@/lib/types-analytics";
+
+export function buildResponseWhere(filters: AnalyticsFilters): Prisma.ResponseWhereInput {
+  const where: Prisma.ResponseWhereInput = {};
+  if (filters.surveyId) where.surveyId = filters.surveyId;
+  if (filters.language) where.language = filters.language;
+  if (filters.interviewMethod || filters.interviewMode) {
+    where.survey = {
+      ...(filters.interviewMethod ? { interviewMethod: filters.interviewMethod } : {}),
+      ...(filters.interviewMode ? { interviewMode: filters.interviewMode } : {}),
+    };
+  }
+  if (filters.respondentGroup) {
+    where.respondent = { respondentGroup: filters.respondentGroup };
+  }
+  if (filters.from || filters.to) {
+    where.submittedAt = {
+      ...(filters.from ? { gte: new Date(filters.from) } : {}),
+      ...(filters.to ? { lte: new Date(filters.to) } : {}),
+    };
+  }
+  if (filters.includeOffline === false) where.source = "ONLINE";
+  return where;
+}

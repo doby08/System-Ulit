@@ -1,0 +1,134 @@
+/* -------------------------------------------------------------------------- */
+/* Question-level operations (used by the builder UI)                          */
+/* -------------------------------------------------------------------------- */
+export async function addQuestion(userId: string, surveyId: string, input: QuestionInput) {
+  await getSurveyOr404(surveyId);
+  const count = await prisma.surveyQuestion.count({ where: { surveyId } });
+  if (count >= MAX_QUESTIONS_PER_SURVEY) {
+    throw new ApiError(`Maximum of ${MAX_QUESTIONS_PER_SURVEY} questions per survey reached.`, 400, {
+      code: "TOO_MANY_QUESTIONS",
+    });
+  }
+  const question = await prisma.surveyQuestion.create({
+    data: questionCreateData(input, { surveyId, order: count + 1, createdById: userId }),
+  });
+  await prisma.survey.update({ where: { id: surveyId }, data: { questionCount: count + 1 } });
+  return question;
+}
+
+export async function updateQuestion(
+  userId: string,
+  questionId: string,
+  input: Partial<QuestionInput>,
+) {
+  const existing = await prisma.surveyQuestion.findUnique({ where: { id: questionId } });
+  if (!existing) throw new ApiError("Question not found.", 404, { code: "NOT_FOUND" });
+
+  return prisma.surveyQuestion.update({
+    where: { id: questionId },
+    data: {
+      ...(input.text !== undefined ? { text: input.text.trim() } : {}),
+      ...(input.originalText !== undefined ? { originalText: input.originalText } : {}),
+      ...(input.helpText !== undefined ? { helpText: input.helpText } : {}),
+      ...(input.type !== undefined ? { type: input.type } : {}),
+      ...(input.category !== undefined ? { category: input.category } : {}),
+      ...(input.tags !== undefined ? { tags: stringifyTags(input.tags) } : {}),
+      ...(input.difficulty !== undefined ? { difficulty: input.difficulty } : {}),
+      ...(input.relevanceScore !== undefined ? { relevanceScore: input.relevanceScore } : {}),
+      ...(input.isRequired !== undefined ? { isRequired: input.isRequired } : {}),
+      ...(input.options !== undefined
+        ? { options: serializeQuestionOptions(toQuestionOptions(input.options)) }
+        : {}),
+      ...(input.likertScale !== undefined ? { likertScale: input.likertScale } : {}),
+      ...(input.allowFollowUp !== undefined ? { allowFollowUp: input.allowFollowUp } : {}),
+      ...(input.isCore !== undefined ? { isCore: input.isCore } : {}),
+      ...(input.order !== undefined ? { order: input.order } : {}),
+      ...(input.aiGenerated !== undefined ? { aiGenerated: input.aiGenerated } : {}),
+      ...(input.aiSource !== undefined ? { aiSource: input.aiSource } : {}),
+    },
+  });
+}
+
+export async function deleteQuestion(questionId: string) {
+  const existing = await prisma.surveyQuestion.findUnique({
+    where: { id: questionId },
+    include: { _count: { select: { answers: true } } },
+  });
+  if (!existing) throw new ApiError("Question not found.", 404, { code: "NOT_FOUND" });
+  if (existing._count.answers > 0) {
+    throw new ApiError(
+      "This question already has recorded answers and cannot be deleted. Publish a new version instead.",
+      409,
+      { code: "QUESTION_HAS_ANSWERS" },
+    );
+  }
+  await prisma.surveyQuestion.delete({ where: { id: questionId } });
+  const remaining = await prisma.surveyQuestion.findMany({
+    where: { surveyId: existing.surveyId },
+    orderBy: { order: "asc" },
+    select: { id: true },
+  });
+  await prisma.$transaction(
+    remaining.map((question, index) =>
+      prisma.surveyQuestion.update({
+        where: { id: question.id },
+        data: { order: index + 1, code: `Q${index + 1}` },
+      }),
+    ),
+  );
+  await prisma.survey.update({
+    where: { id: existing.surveyId },
+    data: { questionCount: remaining.length },
+  });
+  return { deleted: true, remaining: remaining.length };
+}
+
+export async function reorderQuestions(surveyId: string, order: { id: string; order: number }[]) {
+  await prisma.$transaction(
+    order.map((entry) =>
+      prisma.surveyQuestion.update({ where: { id: entry.id }, data: { order: entry.order } }),
+    ),
+  );
+  return prisma.surveyQuestion.findMany({ where: { surveyId }, orderBy: { order: "asc" } });
+}
+
+export async function duplicateQuestion(userId: string, questionId: string) {
+  const existing = await prisma.surveyQuestion.findUnique({ where: { id: questionId } });
+  if (!existing) throw new ApiError("Question not found.", 404, { code: "NOT_FOUND" });
+  const count = await prisma.surveyQuestion.count({ where: { surveyId: existing.surveyId } });
+  if (count >= MAX_QUESTIONS_PER_SURVEY) {
+    throw new ApiError(`Maximum of ${MAX_QUESTIONS_PER_SURVEY} questions per survey reached.`, 400, {
+      code: "TOO_MANY_QUESTIONS",
+    });
+  }
+  const created = await prisma.surveyQuestion.create({
+    data: {
+      surveyId: existing.surveyId,
+      versionId: existing.versionId,
+      bankItemId: existing.bankItemId,
+      order: count + 1,
+      code: `Q${count + 1}`,
+      text: existing.text,
+      originalText: existing.originalText,
+      helpText: existing.helpText,
+      type: existing.type,
+      category: existing.category,
+      tags: existing.tags,
+      difficulty: existing.difficulty,
+      relevanceScore: existing.relevanceScore,
+      isRequired: existing.isRequired,
+      options: existing.options,
+      likertScale: existing.likertScale,
+      aiGenerated: existing.aiGenerated,
+      aiSource: existing.aiSource,
+      allowFollowUp: existing.allowFollowUp,
+      isCore: existing.isCore,
+      createdById: userId,
+    },
+  });
+  await prisma.survey.update({
+    where: { id: existing.surveyId },
+    data: { questionCount: count + 1 },
+  });
+  return created;
+}

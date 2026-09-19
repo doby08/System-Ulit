@@ -1,0 +1,94 @@
+/**
+ * Applies the administrator's randomization configuration.
+ * IMPORTANT: only the prepared question set is used — never new/unrelated questions.
+ */
+export function applyRandomization(
+  questions: PublicQuestion[],
+  settings: SurveySettings,
+  seed: string,
+): { questions: PublicQuestion[]; strategy: string } {
+  const config = settings.randomize;
+  if (!config.enabled) return { questions, strategy: "NONE" };
+
+  if (config.strategy === "SHUFFLE_ORDER") {
+    return { questions: seededShuffle(questions, seed), strategy: "SHUFFLE_ORDER" };
+  }
+
+  if (config.strategy === "RANDOM_SUBSET") {
+    const size = Math.max(1, Math.min(questions.length, config.subsetSize));
+    const shuffled = seededShuffle(questions, seed);
+    return {
+      questions: shuffled.slice(0, size).sort((a, b) => a.order - b.order),
+      strategy: `RANDOM_SUBSET(${size})`,
+    };
+  }
+
+  // RANDOM_SET_ASSIGNMENT: split the prepared set into N balanced variants and
+  // deterministically assign this respondent to one of them using the seed.
+  const setCount = Math.max(1, Math.min(10, config.setCount));
+  const shuffled = seededShuffle(questions, `${seed}-sets`);
+  const buckets: PublicQuestion[][] = Array.from({ length: setCount }, () => []);
+  shuffled.forEach((question, index) => {
+    buckets[index % setCount].push(question);
+  });
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) % 1_000_003;
+  const assigned = buckets[hash % setCount].slice().sort((a, b) => a.order - b.order);
+  return { questions: assigned, strategy: `RANDOM_SET_ASSIGNMENT(set ${(hash % setCount) + 1}/${setCount})` };
+}
+
+export type VersionSnapshot = {
+  questions: QuestionRecord[];
+  capturedAt: string;
+  interviewMethod: string;
+  interviewMode: string;
+  language: string;
+  topic: string;
+  title: string;
+  description: string;
+  stakeholder: string;
+  settings: string | null;
+};
+
+/** Builds the immutable snapshot stored when a survey version is published. */
+export function buildVersionSnapshot(
+  survey: {
+    title: string;
+    description: string;
+    stakeholder: string;
+    topic: string;
+    interviewMethod: string;
+    interviewMode: string;
+    language: string;
+    settings: string | null;
+  },
+  questions: QuestionRecord[],
+): VersionSnapshot {
+  return {
+    title: survey.title,
+    description: survey.description,
+    stakeholder: survey.stakeholder,
+    topic: survey.topic,
+    interviewMethod: survey.interviewMethod,
+    interviewMode: survey.interviewMode,
+    language: survey.language,
+    settings: survey.settings,
+    capturedAt: new Date().toISOString(),
+    questions: questions.map((q) => ({ ...q })),
+  };
+}
+
+export function parseVersionSnapshot(snapshot: string | null): VersionSnapshot | null {
+  const parsed = safeJsonParse<VersionSnapshot | null>(snapshot, null);
+  if (!parsed || !Array.isArray(parsed.questions)) return null;
+  return parsed;
+}
+
+/** Restores question records from a stored version snapshot. */
+export function questionsFromSnapshot(snapshot: VersionSnapshot): QuestionRecord[] {
+  return snapshot.questions.map((q) => ({ ...q }));
+}
+
+export function isKnownQuestionType(type: string) {
+  return (QUESTION_TYPE_VALUES as readonly string[]).includes(type);
+}

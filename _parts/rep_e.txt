@@ -1,0 +1,53 @@
+export async function generateAndSaveReport(params: {
+  surveyId: string;
+  reportType: "SUMMARY" | "DETAILED" | "COMPARATIVE";
+  title?: string;
+  generatedBy: string;
+  createdById: string;
+  filters?: AnalyticsFilters;
+}) {
+  const content = await buildReportContent({
+    surveyId: params.surveyId,
+    reportType: params.reportType,
+    title: params.title,
+    generatedBy: params.generatedBy,
+    filters: params.filters,
+  });
+
+  const summaryText = [
+    `${content.overview.totalResponses} responses`,
+    `${content.overview.completionRate}% completion`,
+    `${content.overview.averageSatisfactionPercent}% satisfaction`,
+  ].join(" · ");
+
+  const saved = await prisma.report.create({
+    data: {
+      surveyId: params.surveyId,
+      surveyVersion: content.survey.version,
+      reportType: params.reportType,
+      title: content.title,
+      status: "READY",
+      filters: params.filters ? JSON.stringify(params.filters) : null,
+      content: JSON.stringify(content),
+      summary: `${summaryText}. ${content.aiSummary.slice(0, 400)}`,
+      createdById: params.createdById,
+    },
+    include: {
+      survey: { select: { id: true, title: true, topic: true } },
+      createdBy: { select: { id: true, fullName: true } },
+    },
+  });
+
+  return { report: saved, content: { ...content, reportId: saved.id } };
+}
+
+export function parseReportContent(raw: string | null): ReportContent | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ReportContent;
+    if (!parsed || !parsed.survey || !Array.isArray(parsed.questions)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}

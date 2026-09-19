@@ -1,0 +1,36 @@
+import { NextRequest } from "next/server";
+import { fail, ok } from "@/lib/server/api";
+import { requireAdminApi } from "@/lib/server/api";
+import { prisma } from "@/lib/prisma";
+import { saveTranslations } from "@/lib/server/surveys";
+import { translateSurveySchema } from "@/lib/server/validation";
+
+type Context = { params: Promise<{ id: string }> };
+
+/** POST /api/admin/surveys/[id]/translations — generate + store translations. */
+export async function POST_TRANSLATIONS(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const body = await readJson(request, translateSurveySchema);
+  const result = await saveTranslations(id, body.languages, {
+    includeQuestions: body.includeQuestions !== false,
+  });
+  return ok({
+    ...result,
+    actor: user.username,
+  });
+}
+
+/** GET /api/admin/surveys/[id]/translations — current stored translations. */
+export async function GET_TRANSLATIONS(_request: NextRequest, { params }: Context) {
+  await requireAdminApi();
+  const { id } = await params;
+  const [surveyTranslations, questionTranslations] = await Promise.all([
+    prisma.surveyTranslation.findMany({ where: { surveyId: id } }),
+    prisma.questionTranslation.findMany({
+      where: { question: { surveyId: id } },
+      select: { questionId: true, language: true, text: true, source: true },
+    }),
+  ]);
+  return ok({ surveyTranslations, questionTranslations });
+}

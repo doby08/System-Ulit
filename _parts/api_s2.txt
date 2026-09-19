@@ -1,0 +1,122 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { ApiError, enforceRateLimit, fail, getIp, getUserAgent, ok, readJson } from "@/lib/server/api";
+import { deleteSurvey, duplicateSurvey, getSurveyOr404, publishSurvey, setSurveyStatus, updateSurvey } from "@/lib/server/surveys";
+import { mapSurveySummary } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { surveyUpdateSchema } from "@/lib/server/validation";
+import { requireAdminApi } from "@/lib/server/api";
+import { z } from "zod";
+
+type Context = { params: Promise<{ id: string }> };
+
+/** GET /api/admin/surveys/[id] — full survey detail incl. questions, versions, QR tokens. */
+export async function GET_DETAIL(_request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  void user;
+  const { id } = await params;
+  const survey = await getSurveyOr404(id);
+  return ok({
+    ...mapSurveySummary({
+      ...survey,
+      questionCount: survey.questions.length,
+      _count: survey._count,
+    }),
+    questions: survey.questions,
+    versions: survey.versions,
+    qrTokens: survey.qrTokens.map((token) => ({
+      id: token.id,
+      token: token.token,
+      label: token.label,
+      status: token.status,
+      scans: token.scans,
+      responses: token.responses,
+      completions: token.completions,
+      createdAt: token.createdAt.toISOString(),
+      expiresAt: token.expiresAt?.toISOString() ?? null,
+    })),
+    settingsParsed: survey.settings,
+  });
+}
+
+/** PATCH /api/admin/surveys/[id] — update survey + prepared questions. */
+export async function PATCH_UPDATE(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const body = await readJson(request, surveyUpdateSchema);
+  const updated = await updateSurvey(user.id, id, body as never, {
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok(mapSurveySummary({ ...updated, questionCount: updated.questions?.length ?? 0 }));
+}
+
+/** DELETE /api/admin/surveys/[id] — deletes (or force-deletes) a survey. */
+export async function DELETE_SURVEY(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const force = new URL(request.url).searchParams.get("force") === "true";
+  const result = await deleteSurvey(user.id, id, {
+    force,
+    meta: { ip: getIp(request), userAgent: getUserAgent(request) },
+  });
+  return ok(result);
+}
+
+/** POST /api/admin/surveys/[id]/publish — freezes a version and publishes. */
+export async function POST_PUBLISH(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  enforceRateLimit(`publish:${user.id}`, 20, 60_000, "Too many publish requests. Please slow down.");
+  const payload = await readJson(
+    request,
+    z.object({ changeNote: z.string().max(300).optional() }),
+  );
+  const changeNote: string | null = payload.changeNote?.trim() ?? null;
+  const { survey, version } = await publishSurvey(user.id, id, {
+    changeNote,
+    meta: { ip: getIp(request), userAgent: getUserAgent(request) },
+  });
+  return ok({
+    survey: mapSurveySummary({
+      ...survey,
+      questionCount: survey.questions.length,
+      _count: survey._count,
+    }),
+    version: {
+      id: version.id,
+      version: version.version,
+      publishedAt: version.publishedAt?.toISOString() ?? null,
+    },
+  });
+}
+
+/** POST /api/admin/surveys/[id]/status — lifecycle transitions. */
+export async function POST_STATUS(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const body = await readJson(
+    request,
+    z.object({
+      status: z.enum(["DRAFT", "PUBLISHED", "CLOSED", "ARCHIVED"]),
+    }),
+  );
+  const updated = await setSurveyStatus(user.id, id, body.status, {
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok({ id: updated.id, status: updated.status });
+}
+
+/** POST /api/admin/surveys/[id]/duplicate — clones a survey as a draft. */
+export async function POST_DUPLICATE(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const copy = await duplicateSurvey(user.id, id, {
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok({ id: copy.id, title: copy.title }, { status: 201 });
+}
+
+export { ApiError, logAudit };

@@ -1,0 +1,104 @@
+import { NextRequest } from "next/server";
+import { fail, ok, readJson, requireAdminApi, enforceRateLimit } from "@/lib/server/api";
+import {
+  addQuestion,
+  deleteQuestion,
+  duplicateQuestion,
+  getSurveyOr404,
+  reorderQuestions,
+  updateQuestion,
+} from "@/lib/server/surveys";
+import { mapQuestionToDraft } from "@/lib/server/questions";
+import {
+  questionInputSchema,
+  questionReorderSchema,
+  regenerateQuestionSchema,
+} from "@/lib/server/validation";
+import { regenerateQuestion } from "@/lib/ai/questions";
+import { z } from "zod";
+
+type Context = { params: Promise<{ id: string }> };
+
+/** GET /api/admin/surveys/[id]/questions — prepared questions for the builder. */
+export async function GET_QUESTIONS(_request: NextRequest, { params }: Context) {
+  await requireAdminApi();
+  const { id } = await params;
+  const survey = await getSurveyOr404(id);
+  return ok({
+    questions: survey.questions.map((question) => mapQuestionToDraft(question)),
+    count: survey.questions.length,
+  });
+}
+
+/** POST /api/admin/surveys/[id]/questions — add one manual question. */
+export async function POST_QUESTION(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const body = await readJson(request, questionInputSchema);
+  const question = await addQuestion(user.id, id, body as never);
+  return ok(mapQuestionToDraft(question), { status: 201 });
+}
+
+/** PUT /api/admin/surveys/[id]/questions/reorder — persist builder order. */
+export async function PUT_REORDER(request: NextRequest, { params }: Context) {
+  await requireAdminApi();
+  const { id } = await params;
+  const body = await readJson(request, questionReorderSchema);
+  const questions = await reorderQuestions(id, body.order);
+  return ok({ questions: questions.map((question) => mapQuestionToDraft(question)) });
+}
+
+/** POST /api/admin/surveys/[id]/questions/regenerate — one replacement question. */
+export async function POST_REGENERATE(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  enforceRateLimit(
+    `ai-regen:${user.id}`,
+    20,
+    60_000,
+    "AI regeneration is rate-limited. Please wait a moment.",
+  );
+  const body = await readJson(request, regenerateQuestionSchema);
+  const survey = await getSurveyOr404(id);
+  const exclude = [...(body.exclude ?? []), ...(body.text ? [body.text] : [])];
+  const replacement = await regenerateQuestion({
+    topic: survey.topic,
+    stakeholder: survey.stakeholder,
+    interviewMethod: survey.interviewMethod,
+    interviewMode: survey.interviewMode,
+    language: survey.language,
+    count: 1,
+    difficulty: body.difficulty ?? null,
+    exclude,
+  });
+  if (!replacement) {
+    return ok({ question: null, message: "No alternative question could be generated." });
+  }
+  return ok({ question: replacement });
+}
+
+type QuestionContext = { params: Promise<{ id: string; questionId: string }> };
+
+/** PATCH /api/admin/surveys/[id]/questions/[questionId] — edit one question. */
+export async function PATCH_QUESTION(request: NextRequest, { params }: QuestionContext) {
+  await requireAdminApi();
+  const { questionId } = await params;
+  const body = await readJson(request, questionInputSchema.partial());
+  const updated = await updateQuestion("", questionId, body as never);
+  return ok(mapQuestionToDraft(updated));
+}
+
+/** DELETE /api/admin/surveys/[id]/questions/[questionId] — delete one question. */
+export async function DELETE_QUESTION(_request: NextRequest, { params }: QuestionContext) {
+  await requireAdminApi();
+  const { questionId } = await params;
+  return ok(await deleteQuestion(questionId));
+}
+
+/** POST /api/admin/surveys/[id]/questions/[questionId]/duplicate — clone. */
+export async function POST_DUPLICATE_QUESTION(_request: NextRequest, { params }: QuestionContext) {
+  const user = await requireAdminApi();
+  const { questionId } = await params;
+  const created = await duplicateQuestion(user.id, questionId);
+  return ok(mapQuestionToDraft(created), { status: 201 });
+}

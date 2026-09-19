@@ -1,0 +1,114 @@
+/**
+ * Response submission + idempotent synchronization service.
+ *
+ * Guarantees:
+ *  - every response carries a client-generated UUID (clientResponseId) → retries are safe
+ *  - identical retries return DUPLICATE (nothing is written twice)
+ *  - conflicting content under the same id is never silently overwritten → CONFLICT record
+ *  - answers always link to survey, survey version, question, respondent and session
+ */
+import { createHash, randomBytes } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { resolveLikertScore } from "@/lib/likert";
+import { parseSurveySettings } from "@/lib/settings";
+import { classifySentiment, scoreText, tokenize } from "@/lib/ai/lexicon";
+import { incrementQrCompletions, incrementQrResponses, resolvePublicToken } from "@/lib/server/qr";
+import { parseVersionSnapshot, type QuestionRecord } from "@/lib/server/questions";
+import type { AnswerPayload, ResponseSubmitPayload, SyncBatchResult, SubmitResult } from "@/lib/types";
+
+export function generateCode(prefix: string, length = 6) {
+  return `${prefix}-${randomBytes(Math.ceil(length / 2))
+    .toString("hex")
+    .slice(0, length)
+    .toUpperCase()}`;
+}
+
+export function computeContentHash(payload: ResponseSubmitPayload): string {
+  const canonical = JSON.stringify({
+    token: payload.token,
+    answers: [...payload.answers]
+      .sort((a, b) =>
+        `${a.questionId}${a.parentQuestionId ?? ""}`.localeCompare(
+          `${b.questionId}${b.parentQuestionId ?? ""}`,
+        ),
+      )
+      .map((answer) => ({
+        q: answer.questionId,
+        t: answer.valueText ?? null,
+        n: answer.valueNumber ?? null,
+        o: answer.valueOption ?? null,
+        os: (answer.valueOptions ?? []).slice().sort(),
+        b: answer.valueBool ?? null,
+        f: answer.isFollowUp ?? false,
+        p: answer.parentQuestionId ?? null,
+      })),
+    respondent: payload.respondent ?? null,
+    session: payload.session?.sessionCode ?? null,
+  });
+  return createHash("sha256").update(canonical).digest("hex").slice(0, 40);
+}
+
+export function normalizeAnswerValues(answer: AnswerPayload) {
+  return {
+    valueText: answer.valueText ? answer.valueText.toString().slice(0, 6000) : null,
+    valueNumber:
+      typeof answer.valueNumber === "number" && Number.isFinite(answer.valueNumber)
+        ? answer.valueNumber
+        : null,
+    valueOption: answer.valueOption ? answer.valueOption.toString().slice(0, 400) : null,
+    valueOptions: answer.valueOptions?.length
+      ? answer.valueOptions.join(" | ").slice(0, 2000)
+      : null,
+    valueBool: typeof answer.valueBool === "boolean" ? answer.valueBool : null,
+  };
+}
+
+/** Upserts the respondent record (keeps one central respondent registry). */
+export async function resolveRespondent(
+  tx: Prisma.TransactionClient,
+  payload: ResponseSubmitPayload,
+  surveyId: string,
+) {
+  const supplied = payload.respondent ?? {};
+  const code = supplied.respondentCode?.trim() || generateCode("RSP");
+
+  const existing = await tx.respondent.findUnique({ where: { respondentCode: code } });
+  if (existing) {
+    return tx.respondent.update({
+      where: { id: existing.id },
+      data: {
+        name: supplied.name?.trim() || existing.name,
+        ageGroup: supplied.ageGroup?.trim() || existing.ageGroup,
+        gender: supplied.gender?.trim() || existing.gender,
+        location: supplied.location?.trim() || existing.location,
+        organization: supplied.organization?.trim() || existing.organization,
+        email: supplied.email?.trim() || existing.email,
+        phone: supplied.phone?.trim() || existing.phone,
+        respondentGroup: supplied.respondentGroup?.trim() || existing.respondentGroup,
+        language: supplied.language ?? payload.language ?? existing.language,
+        device: supplied.device ?? payload.device ?? existing.device,
+        surveyId: existing.surveyId ?? surveyId,
+      },
+      select: { id: true, respondentCode: true },
+    });
+  }
+
+  return tx.respondent.create({
+    data: {
+      respondentCode: code,
+      name: supplied.name?.trim() || null,
+      ageGroup: supplied.ageGroup?.trim() || null,
+      gender: supplied.gender?.trim() || null,
+      location: supplied.location?.trim() || null,
+      organization: supplied.organization?.trim() || null,
+      email: supplied.email?.trim() || null,
+      phone: supplied.phone?.trim() || null,
+      respondentGroup: supplied.respondentGroup?.trim() || null,
+      language: supplied.language ?? payload.language ?? null,
+      device: supplied.device ?? payload.device ?? null,
+      surveyId,
+    },
+    select: { id: true, respondentCode: true },
+  });
+}

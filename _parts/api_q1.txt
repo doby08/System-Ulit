@@ -1,0 +1,161 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, getIp, getUserAgent, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapQrTokenRecord } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { createQrToken, generatePublicToken, publicSurveyUrl, qrDataUrl, qrSvg } from "@/lib/server/qr";
+import { qrCreateSchema, qrUpdateSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/qr — all QR tokens with survey context. */
+export async function GET_QR(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const surveyId = url.searchParams.get("surveyId") ?? undefined;
+  const status = url.searchParams.get("status") ?? undefined;
+  const tokens = await prisma.qRToken.findMany({
+    where: {
+      ...(surveyId ? { surveyId } : {}),
+      ...(status ? { status } : {}),
+    },
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    include: {
+      survey: { select: { id: true, title: true, topic: true, status: true } },
+      version: { select: { version: true } },
+    },
+  });
+  return ok({ items: tokens.map((token) => mapQrTokenRecord(token)) });
+}
+
+/** POST /api/admin/qr — mint a QR token for a survey (Publish & Generate QR Code). */
+export async function POST_QR(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, qrCreateSchema);
+  const token = await createQrToken({
+    surveyId: body.surveyId,
+    createdById: user.id,
+    label: body.label,
+    language: body.language,
+    expiresAt: body.expiresAt,
+    versionId: body.versionId,
+    settings: body.settings,
+  });
+  await logAudit({
+    action: "QR_CREATED",
+    entity: "QRToken",
+    entityId: token.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { surveyId: body.surveyId },
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  const url = publicSurveyUrl(token.token);
+  const dataUrl = await qrDataUrl(url);
+  return ok(
+    {
+      ...(await fullQr(token.id)),
+      dataUrl,
+      publicUrl: url,
+    },
+    { status: 201 },
+  );
+}
+
+async function fullQr(id: string) {
+  const token = await prisma.qRToken.findUnique({
+    where: { id },
+    include: {
+      survey: { select: { id: true, title: true, topic: true, status: true } },
+      version: { select: { version: true } },
+    },
+  });
+  return mapQrTokenRecord(token!);
+}
+
+type QrContext = { params: Promise<{ qrId: string }> };
+
+/** GET /api/admin/qr/[qrId] — token detail incl. a fresh QR image. */
+export async function GET_QR_DETAIL(_request: NextRequest, { params }: QrContext) {
+  await requireAdminApi();
+  const { qrId } = await params;
+  const token = await prisma.qRToken.findUnique({
+    where: { id: qrId },
+    include: {
+      survey: { select: { id: true, title: true, topic: true, status: true } },
+      version: { select: { version: true } },
+    },
+  });
+  if (!token) return ok({ qr: null });
+  const url = publicSurveyUrl(token.token);
+  return ok({
+    qr: mapQrTokenRecord(token),
+    publicUrl: url,
+    dataUrl: await qrDataUrl(url),
+    svg: await qrSvg(url),
+  });
+}
+
+/** PATCH /api/admin/qr/[qrId] — disable/enable/expire/rotate/relable. */
+export async function PATCH_QR(request: NextRequest, { params }: QrContext) {
+  const user = await requireAdminApi();
+  const { qrId } = await params;
+  const body = await readJson(request, qrUpdateSchema);
+
+  const data: Record<string, unknown> = {};
+  if (body.status) {
+    data.status = body.status;
+    if (body.status === "DISABLED") data.disabledAt = new Date();
+  }
+  if (body.label !== undefined) data.label = body.label;
+  if (body.expiresAt !== undefined) data.expiresAt = body.expiresAt;
+  if (body.regenerate || body.rotateToken) {
+    data.token = generatePublicToken();
+    data.scans = 0;
+    data.responses = 0;
+    data.completions = 0;
+    data.lastScanAt = null;
+    data.disabledAt = null;
+    data.status = "ACTIVE";
+  }
+
+  const updated = await prisma.qRToken.update({ where: { id: qrId }, data });
+  await logAudit({
+    action: body.regenerate || body.rotateToken ? "QR_REGENERATED" : "QR_UPDATED",
+    entity: "QRToken",
+    entityId: qrId,
+    actorId: user.id,
+    actorName: user.username,
+    details: body,
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+
+  const url = publicSurveyUrl(updated.token);
+  return ok({
+    qr: await fullQr(updated.id),
+    publicUrl: url,
+    dataUrl: await qrDataUrl(url),
+  });
+}
+
+/** DELETE /api/admin/qr/[qrId] — delete a token. */
+export async function DELETE_QR(request: NextRequest, { params }: QrContext) {
+  const user = await requireAdminApi();
+  const { qrId } = await params;
+  await prisma.qRToken.delete({ where: { id: qrId } });
+  await logAudit({
+    action: "QR_DELETED",
+    entity: "QRToken",
+    entityId: qrId,
+    actorId: user.id,
+    actorName: user.username,
+    severity: "WARNING",
+    details: null,
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok({ deleted: true });
+}
+
+export { fail };

@@ -1,0 +1,21 @@
+{
+  "name": "InterviewAI",
+  "short_name": "InterviewAI",
+  "description": "AI-powered Interview & Survey System — Offline PWA",
+  "display": "standalone",
+  "background_color": "#05070F",
+  "theme_color": "#3B6BF6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

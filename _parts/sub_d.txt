@@ -1,0 +1,117 @@
+/** Persists a new response with all of its answers, Likert scores and links. */
+export async function writeResponseCore(
+  payload: ResponseSubmitPayload,
+  context: {
+    surveyId: string;
+    qrId: string;
+    versionId: string | null;
+    interviewMode: string;
+    defaultLanguage: string;
+    questions: QuestionRecord[];
+    contentHash: string;
+  },
+) {
+  const questionMap = new Map(context.questions.map((question) => [question.id, question]));
+  const validAnswers = payload.answers.filter((answer) => questionMap.has(answer.questionId));
+  if (!validAnswers.length) {
+    throw new Error("None of the submitted answers match the prepared questions for this survey.");
+  }
+
+  const totalQuestions = context.questions.length || validAnswers.length;
+  const answeredCount = new Set(validAnswers.map((a) => a.questionId)).size;
+  const completionRate = Number(((answeredCount / totalQuestions) * 100).toFixed(2));
+
+  return prisma.$transaction(async (tx) => {
+    const respondent = await resolveRespondent(tx, payload, context.surveyId);
+    const session = await resolveInterviewSession(tx, payload, {
+      surveyId: context.surveyId,
+      versionId: context.versionId,
+      mode: context.interviewMode,
+      respondentId: respondent.id,
+    });
+
+    const response = await tx.response.create({
+      data: {
+        clientResponseId: payload.clientResponseId,
+        surveyId: context.surveyId,
+        versionId: context.versionId,
+        sessionId: session.id,
+        respondentId: respondent.id,
+        qrTokenId: context.qrId,
+        language: payload.language ?? context.defaultLanguage,
+        status: payload.status ?? "COMPLETE",
+        source: payload.source ?? "ONLINE",
+        deviceId: payload.deviceId ?? null,
+        device: payload.device ?? null,
+        networkState: payload.networkState ?? "ONLINE",
+        answersCount: answeredCount,
+        totalQuestions,
+        completionRate,
+        durationSec: payload.durationSec ?? 0,
+        revision: payload.revision ?? 1,
+        contentHash: context.contentHash,
+        syncStatus: "SYNCED",
+        capturedAt: payload.capturedAt ? new Date(payload.capturedAt) : new Date(),
+        submittedAt: new Date(),
+        syncedAt: new Date(),
+      },
+    });
+
+    for (const answer of validAnswers) {
+      const question = questionMap.get(answer.questionId)!;
+      const questionOptions = (question as unknown as { options: string | null }).options ?? null;
+      const values = normalizeAnswerValues(answer);
+      const enrichment = enrichOpenText(values.valueText);
+
+      const created = await tx.answer.create({
+        data: {
+          responseId: response.id,
+          questionId: question.id,
+          surveyId: context.surveyId,
+          respondentId: respondent.id,
+          sessionId: session.id,
+          ...values,
+          isFollowUp: answer.isFollowUp ?? false,
+          followUpSource: answer.isFollowUp ? answer.followUpPrompt ?? "AI" : null,
+          aiSentiment: enrichment.aiSentiment,
+          aiKeywords: enrichment.aiKeywords,
+          aiThemes: enrichment.aiThemes,
+          answeredAt: answer.answeredAt ? new Date(answer.answeredAt) : new Date(),
+        },
+      });
+
+      if (question.type === "LIKERT_5" || question.type === "LIKERT_7") {
+        const likert = buildLikertRow({
+          answerId: created.id,
+          surveyId: context.surveyId,
+          questionId: question.id,
+          respondentId: respondent.id,
+          sessionId: session.id,
+          type: question.type,
+          likertScale: question.likertScale,
+          options: questionOptions,
+          value: values,
+        });
+        if (likert) await tx.likertResponse.create({ data: likert });
+      }
+    }
+
+    await tx.syncRecord.create({
+      data: {
+        surveyId: context.surveyId,
+        responseId: response.id,
+        clientResponseId: payload.clientResponseId,
+        deviceId: payload.deviceId ?? payload.device ?? null,
+        direction: "UP",
+        status: "SYNCED",
+        attempt: payload.source === "OFFLINE_SYNC" ? 1 : 0,
+        message:
+          payload.source === "OFFLINE_SYNC"
+            ? "Offline response synchronized successfully."
+            : "Response submitted online.",
+      },
+    });
+
+    return { response, sessionId: session.id, respondentId: respondent.id, answeredCount };
+  });
+}

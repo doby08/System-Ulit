@@ -1,0 +1,51 @@
+/**
+ * Lexicon used by the offline (non-LLM) text analytics engine.
+ * Multilingual: English + Filipino-family markers (Tagalog, Cebuano, Hiligaynon, Ilocano).
+ */
+
+export const POSITIVE_WORDS = [
+  "satisfied", "satisfaction", "happy", "good", "great", "excellent", "helpful", "fast", "quick",
+  "efficient", "friendly", "clean", "easy", "convenient", "reliable", "professional", "responsive",
+  "accessible", "affordable", "secure", "safe", "quality", "improved", "better", "thankful",
+  "grateful", "appreciate", "accommodating", "organized", "available", "complete", "correct",
+  "masaya", "magaling", "mabilis", "maayos", "madali", "matulungin", "malinis", "maganda",
+  "sapat", "tiwala", "mabuti", "kompleto", "maayo", "pasalamat", "kasaligan", "madasig",
+  "mabuligon", "matinlo", "naimbag", "napintas", "nasayaat", "natulong",
+];
+
+export const NEGATIVE_WORDS = [
+  "dissatisfied", "unsatisfied", "poor", "bad", "worst", "slow", "delayed", "delay", "late", "dirty",
+  "rude", "unhelpful", "confusing", "difficult", "hard", "expensive", "lacking", "lack", "shortage",
+  "insufficient", "broken", "error", "fail", "failed", "failure", "problem", "issue", "complaint",
+  "crowded", "hassle", "inconvenient", "miscommunication", "unresponsive", "unfair", "unsafe",
+  "insecure", "disorganized", "unclear", "incomplete", "wrong", "inaccurate", "waste", "costly",
+  "mabagal", "mahirap", "magulo", "marumi", "kulang", "sira", "problema", "reklamo", "mahal",
+  "abala", "mali", "matagal", "nakakainis", "lisod", "hinay", "hugaw", "gubot", "sayop",
+  "mabudlay", "malain", "gamo", "nalating", "narigat", "rugit", "kurkurang", "nangina",
+];
+
+export const NEGATION_WORDS = [
+  "not", "no", "never", "none", "cannot", "without", "hindi", "wala", "dili", "indi", "di",
+];
+
+export const SUGGESTION_CUES = [
+  "should", "suggest", "suggestion", "recommend", "recommendation", "improve", "improvement",
+  "hope", "please", "add", "provide", "increase", "reduce", "better if", "it would be better",
+  "sana", "dapat", "kailangan", "dagdagan", "bawasan", "ayusin", "pagbutihin", "kung pwede",
+  "kinahanglan", "palihug", "tulungan", "tarungon", "dugangi", "kun mahimo", "buligan",
+  "kasapulan", "pangngaasi", "imbag", "paaduen",
+];
+
+export const CONCERN_CUES = [
+  "worry", "worried", "concern", "concerned", "afraid", "fear", "risk", "unsure", "doubt",
+  "confused", "unclear", "alala", "takot", "duda", "hindi sigurado", "kabalaka", "hadlok",
+  "dili sigurado", "kahadlok", "danag", "buteng", "duadua", "di sigurado",
+];
+
+export const PAIN_CUES = [
+  "problem", "issue", "difficulty", "difficult", "slow", "delay", "delayed", "waiting",
+  "long queue", "crowded", "lacking", "shortage", "broken", "error", "unavailable", "expensive",
+  "hassle", "inconvenient", "not working", "no response", "hindi gumagana", "problema", "mabagal",
+  "matagal", "pila", "siksikan", "kulang", "sira", "hindi available", "hinay", "taas pila", "huot",
+  "guba", "mabudlay", "malawig", "nalating", "atiddog", "ruot", "nadadael",
+];

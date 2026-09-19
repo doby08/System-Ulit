@@ -1,0 +1,119 @@
+/* ------------------------------ Question bank ------------------------------ */
+export const bankItemSchema = z.object({
+  text: z.string().min(3).max(1000),
+  category: optionalText(80),
+  type: z.enum(QUESTION_TYPE_VALUES as [string, ...string[]]),
+  tags: z.array(z.string().max(40)).max(12).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional().nullable(),
+  relevanceScore: z.number().int().min(0).max(100).optional().nullable(),
+  interviewMethod: z.enum(INTERVIEW_METHOD_VALUES as [string, ...string[]]).optional().nullable(),
+  language: z.string().min(2).max(12).default("en"),
+  stakeholder: optionalText(160),
+  options: z.array(questionOptionInput).max(24).optional().nullable(),
+  likertScale: z.union([z.literal(5), z.literal(7)]).optional().nullable(),
+  isFavorite: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
+});
+
+export const bankItemUpdateSchema = bankItemSchema.partial();
+
+/* ---------------------------------- QR ------------------------------------ */
+export const qrCreateSchema = z.object({
+  surveyId: z.string().min(4),
+  label: optionalText(120),
+  language: z.string().min(2).max(12).optional(),
+  expiresAt: optionalDate,
+  versionId: z.string().optional().nullable(),
+  settings: z
+    .object({
+      requireAuthentication: z.boolean().optional(),
+      allowOffline: z.boolean().optional(),
+    })
+    .optional()
+    .nullable(),
+});
+
+export const qrUpdateSchema = z.object({
+  status: z.enum(["ACTIVE", "DISABLED", "EXPIRED"]).optional(),
+  label: optionalText(120),
+  expiresAt: optionalDate,
+  regenerate: z.boolean().optional(),
+  rotateToken: z.boolean().optional(),
+});
+
+/* ------------------------------ Respondents ------------------------------- */
+export const respondentSchema = z.object({
+  name: optionalText(160),
+  respondentCode: optionalText(60),
+  ageGroup: optionalText(40),
+  gender: optionalText(40),
+  location: optionalText(160),
+  organization: optionalText(160),
+  email: z.union([z.string().email().max(200), z.literal(""), z.null()]).optional(),
+  phone: optionalText(40),
+  respondentGroup: optionalText(120),
+  language: optionalText(12),
+  device: optionalText(60),
+  notes: optionalText(1000),
+  surveyId: optionalText(60),
+  demographics: z.record(z.union([z.string(), z.number(), z.boolean(), z.null()])).optional(),
+});
+
+/* --------------------------------- Tags ----------------------------------- */
+export const tagSchema = z.object({
+  name: z.string().min(2).max(60),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/, "Colour must be a hex value such as #6366F1")
+    .optional(),
+});
+
+/* ------------------------------- Translation ------------------------------- */
+export const translateSurveySchema = z.object({
+  languages: z.array(z.string().min(2).max(12)).min(1).max(5),
+  includeQuestions: z.boolean().optional(),
+  save: z.boolean().optional(),
+});
+
+export const regenerateQuestionSchema = z.object({
+  questionId: z.string().min(4).optional(),
+  text: z.string().min(3).max(1000).optional(),
+  exclude: z.array(z.string().max(1000)).max(50).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).optional().nullable(),
+});
+
+/* --------------------------------- Auth ----------------------------------- */
+export const loginSchema = z.object({
+  username: z.string().min(2).max(60),
+  password: z.string().min(4).max(200),
+  remember: z.boolean().optional(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(4).max(200),
+  newPassword: z.string().min(8).max(200),
+  confirmPassword: z.string().min(8).max(200),
+});
+
+export const profileUpdateSchema = z.object({
+  fullName: z.string().min(2).max(160).optional(),
+  email: z.union([z.string().email().max(200), z.literal(""), z.null()]).optional(),
+  phone: optionalText(40),
+  organization: optionalText(160),
+  avatarColor: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional()
+    .nullable(),
+});
+
+export const appSettingsSchema = z.object({
+  settings: z
+    .array(
+      z.object({
+        key: z.string().min(2).max(60),
+        value: z.string().max(2000),
+      }),
+    )
+    .max(40),
+});

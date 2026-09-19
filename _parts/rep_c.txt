@@ -1,0 +1,54 @@
+let rawResponses: ReportContent["rawResponses"] = [];
+  if (params.reportType !== "SUMMARY") {
+    const responses = await prisma.response.findMany({
+      where: {
+        surveyId: params.surveyId,
+        ...(filters.respondentGroup
+          ? { respondent: { respondentGroup: filters.respondentGroup } }
+          : {}),
+        ...(filters.language ? { language: filters.language } : {}),
+      },
+      orderBy: { submittedAt: "desc" },
+      take: params.reportType === "DETAILED" ? 200 : 60,
+      include: {
+        respondent: { select: { name: true, respondentCode: true, respondentGroup: true } },
+        answers: {
+          include: { question: { select: { code: true, text: true } } },
+        },
+      },
+    });
+    rawResponses = responses.map((response) => ({
+      responseId: response.id,
+      respondent:
+        response.respondent?.name ?? response.respondent?.respondentCode ?? "Anonymous",
+      group: response.respondent?.respondentGroup ?? null,
+      submittedAt: response.submittedAt.toISOString(),
+      source: response.source,
+      status: response.status,
+      answers: response.answers
+        .map((answer) => ({
+          code: answer.question?.code ?? "?",
+          question: answer.question?.text ?? "Deleted question",
+          answer:
+            answer.valueText ??
+            answer.valueOption ??
+            answer.valueOptions ??
+            (answer.valueNumber !== null ? String(answer.valueNumber) : "") ??
+            (answer.valueBool === true ? "Yes" : answer.valueBool === false ? "No" : ""),
+        }))
+        .slice(0, survey.questions.length),
+    }));
+  }
+
+  const openTexts: string[] = [];
+  for (const row of questions) {
+    for (const sample of row.sampleAnswers ?? []) openTexts.push(sample);
+  }
+
+  const insights = await analyzeOpenEnded({
+    texts: openTexts.slice(0, 300),
+    topic: survey.topic,
+    stakeholder: survey.stakeholder,
+    language: survey.language,
+    questions: survey.questions.map((q) => q.text).slice(0, 20),
+  });

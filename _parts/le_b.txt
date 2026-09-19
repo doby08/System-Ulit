@@ -1,0 +1,100 @@
+/** Generates up to MAX_QUESTIONS_PER_SURVEY context-aware questions offline. */
+export function generateQuestionsOffline(options: GenerateOptions): GeneratedQuestion[] {
+  const { topic, stakeholder, interviewMethod, interviewMode, language, difficulty, questionTypes, seed, customLikertLabels } =
+    options;
+
+  const count = Math.max(1, Math.min(MAX_QUESTIONS_PER_SURVEY, Math.round(options.count || 10)));
+  const ctx = parseTopic(topic, stakeholder);
+  let frames = selectFrames(interviewMethod, difficulty);
+
+  if (questionTypes?.length) {
+    const allowed = new Set(questionTypes);
+    const preferred = frames.filter((frame) => allowed.has(frame.type));
+    if (preferred.length >= Math.min(count, 5)) frames = preferred;
+  }
+
+  // Random interview mode + stable seed keeps generated sets distinct but reproducible.
+  if (interviewMode === "RANDOM" && seed) {
+    frames = seededShuffle(frames, seed);
+  }
+
+  const seen = new Set<string>();
+  const questions: GeneratedQuestion[] = [];
+
+  for (const frame of frames) {
+    if (questions.length >= count) break;
+    let text = interpolate(frame.text, ctx);
+    let type = frame.type;
+
+    // Unstructured interviews lean conversational: most closed frames become open prompts.
+    if (interviewMethod === "UNSTRUCTURED" && CLOSED_TYPES.has(type)) {
+      if (questions.length < Math.ceil(count * 0.75)) {
+        text = toConversationalPrompt(text, ctx);
+        type = "LONG_TEXT";
+      }
+    }
+
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const translated = language && language !== "en" ? phraseTranslate(text, language) : null;
+    const finalText = translated?.text ?? text;
+
+    const likertScale = type === "LIKERT_5" ? 5 : type === "LIKERT_7" ? 7 : null;
+    const options =
+      type === "YES_NO"
+        ? [
+            { label: "Yes", value: "Yes", score: 1 },
+            { label: "No", value: "No", score: 0 },
+          ]
+        : buildOptions(frame);
+
+    questions.push({
+      text: finalText,
+      originalText: text,
+      type,
+      category: frame.category,
+      tags: frame.tags,
+      difficulty: frame.difficulty,
+      relevanceScore: relevanceFor(frame, interviewMethod, interviewMode),
+      isRequired: true,
+      options,
+      likertScale,
+      helpText:
+        likertScale && customLikertLabels?.length === likertScale
+          ? customLikertLabels.join(" · ")
+          : likertScale
+            ? likertLabels(likertScale, "en").join(" · ")
+            : null,
+      aiGenerated: true,
+      aiSource: "offline-engine",
+      allowFollowUp: interviewMethod !== "STRUCTURED" && !OPEN_TYPES.has(type),
+      isCore: true,
+    });
+  }
+
+  return questions.map((question, index) => ({ ...question, code: `Q${index + 1}`, order: index + 1 }));
+}
+
+/** Generates a single question that is different from the excluded set. */
+export function generateSingleQuestionOffline(
+  options: GenerateOptions & { exclude?: string[] },
+): GeneratedQuestion | null {
+  const exclude = new Set((options.exclude ?? []).map((t) => t.toLowerCase().trim()));
+  const candidates = generateQuestionsOffline({ ...options, count: MAX_QUESTIONS_PER_SURVEY });
+  return candidates.find((candidate) => !exclude.has(candidate.text.toLowerCase().trim())) ?? null;
+}
+
+/** Rewrites a question with a different frame in the same topic context. */
+export function regenerateQuestionTextOffline(
+  text: string,
+  options: Omit<GenerateOptions, "count"> & { exclude?: string[] },
+): string {
+  const generated = generateSingleQuestionOffline({
+    ...options,
+    count: 1,
+    exclude: [...(options.exclude ?? []), text],
+  });
+  return generated?.text ?? text;
+}

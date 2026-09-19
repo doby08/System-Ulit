@@ -1,0 +1,54 @@
+/** Generates a context-aware follow-up question (AI when available, engine otherwise). */
+export async function generateFollowUp(input: FollowUpInput): Promise<FollowUpResult> {
+  const provider = resolveProvider();
+  const local = buildLocalFollowUp(input);
+
+  if (provider !== "openai") return local;
+
+  const result = await chatJson(
+    {
+      system: [
+        "You are an experienced qualitative interviewer conducting a semi-structured or unstructured interview.",
+        "Given the prepared topic, the original question and the respondent's actual answer, write ONE short, natural follow-up question that digs deeper into what the respondent actually said.",
+        "Rules: never introduce an unrelated topic; reference the respondent's own wording; keep it under 30 words; be respectful and neutral; do not repeat an already-asked follow-up.",
+        'Return STRICT JSON: {"followUp":{"question":"string","rationale":"string"}}',
+        `Write the follow-up in ${languageLabel(input.language)} (code: ${input.language}) using natural, context-aware phrasing.`,
+      ].join("\n"),
+      user: [
+        `Topic: ${input.topic}`,
+        `Interview method: ${input.interviewMethod}`,
+        `Original question: ${input.question}`,
+        `Respondent answer: ${input.answer || "(no answer provided yet)"}`,
+        input.askedFollowUps?.length
+          ? `Already asked follow-ups:\n${input.askedFollowUps.map((q) => `- ${q}`).join("\n")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      temperature: 0.65,
+      maxTokens: 400,
+    },
+    followUpSchema,
+  );
+
+  if (result.ok && result.data.followUp.question.trim().length > 4) {
+    return {
+      question: result.data.followUp.question.trim(),
+      rationale: result.data.followUp.rationale?.trim() || "AI-generated context-aware follow-up.",
+      provider: "openai",
+    };
+  }
+
+  return local;
+}
+
+/** Sentiment/keyword enrichment persisted onto stored open-text answers. */
+export function enrichAnswerText(text: string) {
+  const { score } = scoreText(text);
+  const words = tokenize(text).slice(0, 12);
+  return {
+    sentiment: classifySentiment(score),
+    score,
+    keywords: words.slice(0, 8),
+  };
+}

@@ -1,0 +1,75 @@
+async function seedBank(adminId: string) {
+  const bankCount = await prisma.questionBankItem.count();
+  if (bankCount > 0) return bankCount;
+
+  const samples = generateQuestionsOffline({
+    topic: "Student Satisfaction with University Services",
+    stakeholder: "Students",
+    interviewMethod: "STRUCTURED",
+    interviewMode: "INDIVIDUAL",
+    language: "en",
+    count: 12,
+    seed: "seed-bank",
+  });
+  for (const question of samples) {
+    await prisma.questionBankItem.create({
+      data: {
+        text: question.text,
+        category: question.category ?? "General",
+        type: question.type,
+        tags: stringifyTags(question.tags),
+        difficulty: question.difficulty,
+        relevanceScore: question.relevanceScore,
+        interviewMethod: "STRUCTURED",
+        language: "en",
+        stakeholder: "Students",
+        options: serializeQuestionOptions(question.options),
+        likertScale: question.likertScale,
+        isFavorite: (question.relevanceScore ?? 0) > 80,
+        aiGenerated: true,
+        createdById: adminId,
+      },
+    });
+  }
+  console.log(`[seed] Seeded ${samples.length} question-bank items.`);
+  return samples.length;
+}
+
+const SURVEY_SPECS = [
+  {
+    title: "Student Satisfaction with University Services",
+    topic: "Student Satisfaction with University Services",
+    description:
+      "Measures how satisfied students are with enrolment, registrar, library, finance and campus support services.",
+    stakeholder: "Students",
+    interviewMethod: "STRUCTURED",
+    interviewMode: "INDIVIDUAL",
+    language: "en",
+    respondentGroup: "College Students",
+    questionCount: 25,
+  },
+  {
+    title: "Community Health Services Feedback",
+    topic: "Accessibility of Community Health Services",
+    description:
+      "Semi-structured interviews exploring how residents access barangay health services, with room for follow-up probing.",
+    stakeholder: "Citizens / Residents",
+    interviewMethod: "SEMI_STRUCTURED",
+    interviewMode: "GROUP",
+    language: "tl",
+    respondentGroup: "Barangay Residents",
+    questionCount: 18,
+  },
+  {
+    title: "Employee Experience Conversations",
+    topic: "Employee Experience and Workplace Well-being",
+    description:
+      "Open-ended conversations that surface themes, pain points and suggestions about daily work life.",
+    stakeholder: "Employees",
+    interviewMethod: "UNSTRUCTURED",
+    interviewMode: "RANDOM",
+    language: "en",
+    respondentGroup: "Full-time Staff",
+    questionCount: 12,
+  },
+];

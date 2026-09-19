@@ -1,0 +1,57 @@
+/**
+ * Development seed: default admin + sample surveys, question bank entries,
+ * QR tokens and realistic sample responses (submitted through the REAL
+ * submission service so seeded data exercises the production code path).
+ *
+ * Production data is NEVER touched: every section creates rows only when
+ * the corresponding table is empty.
+ */
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { parseTopic } from "../src/lib/ai/frames";
+import { generateQuestionsOffline } from "../src/lib/ai/local-engine";
+import { resolveProvider } from "../src/lib/ai/provider";
+import { serializeQuestionOptions, defaultSurveySettings } from "../src/lib/settings";
+import { stringifyTags, seededShuffle } from "../src/lib/utils";
+
+const prisma = new PrismaClient();
+
+const SEED_USERNAME = process.env.SEED_ADMIN_USERNAME ?? "Admin";
+const SEED_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "Admin123";
+const SEED_NAME = process.env.SEED_ADMIN_NAME ?? "System Administrator";
+const SEED_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@aiis.local";
+const WITH_SAMPLES = (process.env.SEED_SAMPLE_DATA ?? "true").toLowerCase() !== "false";
+
+async function ensureAdmin() {
+  const existing = await prisma.user.findFirst({
+    where: { OR: [{ username: SEED_USERNAME }, { email: SEED_EMAIL }] },
+  });
+  const passwordHash = await bcrypt.hash(SEED_PASSWORD, 12);
+  if (existing) {
+    return prisma.user.update({
+      where: { id: existing.id },
+      data: {
+        username: SEED_USERNAME,
+        fullName: SEED_NAME,
+        email: SEED_EMAIL,
+        passwordHash,
+        role: "ADMIN",
+        isActive: true,
+        avatarColor: "#6366F1",
+        organization: "InterviewAI Platform",
+      },
+    });
+  }
+  return prisma.user.create({
+    data: {
+      username: SEED_USERNAME,
+      fullName: SEED_NAME,
+      email: SEED_EMAIL,
+      passwordHash,
+      role: "ADMIN",
+      isActive: true,
+      avatarColor: "#6366F1",
+      organization: "InterviewAI Platform",
+    },
+  });
+}

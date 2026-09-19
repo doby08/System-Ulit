@@ -1,0 +1,142 @@
+export function mapSessionRecord(record: {
+  id: string;
+  sessionCode: string;
+  surveyId: string;
+  versionId: string | null;
+  respondentId: string | null;
+  mode: string;
+  groupName: string | null;
+  status: string;
+  notes: string | null;
+  device: string | null;
+  networkState: string | null;
+  language: string | null;
+  startedAt: Date;
+  completedAt: Date | null;
+  createdAt: Date;
+  survey?: { id: string; title: string } | null;
+  respondent?: { id: string; name: string | null; respondentCode: string } | null;
+  _count?: { responses?: number; members?: number };
+  members?: { id: string; name: string; role: string | null; answersCount: number; joinedAt: Date }[];
+  recording?: {
+    id: string;
+    status: string;
+    durationSec: number;
+    sizeBytes: number;
+    mimeType: string | null;
+  } | null;
+}) {
+  return {
+    id: record.id,
+    sessionCode: record.sessionCode,
+    surveyId: record.surveyId,
+    surveyTitle: record.survey?.title ?? null,
+    respondentId: record.respondentId,
+    respondentName: record.respondent?.name ?? record.respondent?.respondentCode ?? null,
+    mode: record.mode,
+    groupName: record.groupName,
+    status: record.status,
+    notes: record.notes,
+    device: record.device,
+    networkState: record.networkState,
+    language: record.language,
+    startedAt: iso(record.startedAt),
+    completedAt: iso(record.completedAt),
+    responseCount: record._count?.responses ?? 0,
+    memberCount: record.members?.length ?? record._count?.members ?? 0,
+    members: (record.members ?? []).map((member) => ({
+      id: member.id,
+      name: member.name,
+      role: member.role,
+      answersCount: member.answersCount,
+      joinedAt: iso(member.joinedAt),
+    })),
+    recording: record.recording
+      ? {
+          status: record.recording.status,
+          durationSec: record.recording.durationSec,
+          sizeBytes: record.recording.sizeBytes,
+          mimeType: record.recording.mimeType,
+        }
+      : null,
+    createdAt: iso(record.createdAt),
+  };
+}
+
+export type SessionDTO = ReturnType<typeof mapSessionRecord>;
+
+export function mapBankItemRecord(record: {
+  id: string;
+  text: string;
+  category: string | null;
+  type: string;
+  tags: string | null;
+  difficulty: string | null;
+  relevanceScore: number | null;
+  interviewMethod: string | null;
+  language: string;
+  stakeholder: string | null;
+  options: string | null;
+  likertScale: number | null;
+  usageCount: number;
+  isFavorite: boolean;
+  isArchived: boolean;
+  aiGenerated: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: record.id,
+    text: record.text,
+    category: record.category,
+    type: record.type,
+    tags: record.tags ? record.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+    difficulty: record.difficulty,
+    relevanceScore: record.relevanceScore,
+    interviewMethod: record.interviewMethod,
+    language: record.language,
+    stakeholder: record.stakeholder,
+    options: record.options,
+    likertScale: record.likertScale,
+    usageCount: record.usageCount,
+    isFavorite: record.isFavorite,
+    isArchived: record.isArchived,
+    aiGenerated: record.aiGenerated,
+    createdAt: iso(record.createdAt),
+    updatedAt: iso(record.updatedAt),
+  };
+}
+
+export type BankItemDTO = ReturnType<typeof mapBankItemRecord>;
+
+export function mapAuditEntry(record: {
+  id: string;
+  actorName: string;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  severity: string;
+  details: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: Date;
+}) {
+  return {
+    id: record.id,
+    actorName: record.actorName,
+    action: record.action,
+    entity: record.entity,
+    entityId: record.entityId,
+    severity: record.severity,
+    details: record.details,
+    ip: record.ip,
+    userAgent: record.userAgent,
+    createdAt: iso(record.createdAt),
+  };
+}
+
+export type AuditEntryDTO = ReturnType<typeof mapAuditEntry>;
+
+export function parseSurveySettingsSafe(raw: string | null, method?: string, mode?: string) {
+  return parseSurveySettings(raw, method, mode);
+}

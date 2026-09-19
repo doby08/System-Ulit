@@ -1,0 +1,31 @@
+async function main() {
+  console.log("[seed] Starting development seed…");
+  const admin = await ensureAdmin();
+  console.log(`[seed] Admin ready: ${admin.username}`);
+
+  if (!WITH_SAMPLES) {
+    console.log("[seed] SEED_SAMPLE_DATA=false — sample surveys skipped.");
+    return;
+  }
+
+  await seedBank(admin.id);
+
+  for (const spec of SURVEY_SPECS) {
+    const survey = await seedSurvey({ ...spec, adminId: admin.id });
+    console.log(`[seed] Survey ready: ${survey.title}`);
+  }
+
+  await seedQrTokens(admin.id);
+  await seedResponses();
+
+  console.log("[seed] Seed completed successfully.");
+}
+
+main()
+  .catch((error) => {
+    console.error("[seed] Failed:", error);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

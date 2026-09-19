@@ -1,0 +1,110 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { isPostgres } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapRespondentRecord } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { paginationSchema, respondentSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/respondents — directory with search, group + survey filters. */
+export async function GET_RESPONDENTS(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const search = (url.searchParams.get("search") ?? "").trim();
+  const group = url.searchParams.get("group") ?? undefined;
+  const surveyId = url.searchParams.get("surveyId") ?? undefined;
+
+  const where = {
+    ...(group ? { respondentGroup: group } : {}),
+    ...(surveyId ? { surveyId } : {}),
+    ...(search
+      ? {
+          OR: isPostgres()
+            ? [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { respondentCode: { contains: search, mode: "insensitive" as const } },
+                { email: { contains: search, mode: "insensitive" as const } },
+              ]
+            : [
+                { name: { contains: search } },
+                { respondentCode: { contains: search } },
+                { email: { contains: search } },
+              ],
+        }
+      : {}),
+  };
+
+  const [total, items] = await Promise.all([
+    prisma.respondent.count({ where }),
+    prisma.respondent.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        survey: { select: { id: true, title: true } },
+        _count: { select: { responses: true, sessions: true } },
+      },
+    }),
+  ]);
+  return ok({ items: items.map(mapRespondentRecord), total, page, pageSize });
+}
+
+/** POST /api/admin/respondents — manually register a respondent. */
+export async function POST_RESPONDENT(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, respondentSchema);
+  const existing = body.respondentCode
+    ? await prisma.respondent.findUnique({ where: { respondentCode: body.respondentCode } })
+    : null;
+  if (existing) {
+    const withRelations = await prisma.respondent.findUnique({
+      where: { id: existing.id },
+      include: {
+        survey: { select: { id: true, title: true } },
+        _count: { select: { responses: true, sessions: true } },
+      },
+    });
+    return ok(mapRespondentRecord(withRelations!));
+  }
+  const created = await prisma.respondent.create({
+    data: {
+      respondentCode:
+        body.respondentCode ??
+        `RSP-${Date.now().toString(36).toUpperCase()}${Math.floor(Math.random() * 90 + 10)}`,
+      name: body.name,
+      ageGroup: body.ageGroup,
+      gender: body.gender,
+      location: body.location,
+      organization: body.organization,
+      email: body.email === "" ? null : (body.email ?? null),
+      phone: body.phone,
+      respondentGroup: body.respondentGroup,
+      language: body.language,
+      device: body.device,
+      notes: body.notes,
+      surveyId: body.surveyId,
+      demographics: body.demographics ? JSON.stringify(body.demographics) : null,
+      createdById: user.id,
+    },
+    include: {
+      survey: { select: { id: true, title: true } },
+      _count: { select: { responses: true, sessions: true } },
+    },
+  });
+  await logAudit({
+    action: "RESPONDENT_CREATED",
+    entity: "Respondent",
+    entityId: created.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { code: created.respondentCode },
+  });
+  return ok(mapRespondentRecord(created), { status: 201 });
+}
+
+export { fail };

@@ -1,0 +1,118 @@
+/**
+ * Updates survey metadata and, when provided, replaces the prepared question set.
+ * Editing an already-published survey bumps the version so running sessions stay intact.
+ */
+export async function updateSurvey(
+  userId: string,
+  surveyId: string,
+  input: SurveyUpdateInput,
+  meta: ActorMeta = {},
+) {
+  const existing = await getSurveyOr404(surveyId);
+
+  const mergedMethod = input.interviewMethod ?? existing.interviewMethod;
+  const mergedMode = input.interviewMode ?? existing.interviewMode;
+  const settings = input.settings
+    ? parseSurveySettings(
+        { ...parseSurveySettings(existing.settings, mergedMethod, mergedMode), ...input.settings },
+        mergedMethod,
+        mergedMode,
+      )
+    : parseSurveySettings(existing.settings, mergedMethod, mergedMode);
+
+  const questionsProvided = Array.isArray(input.questions);
+  const wasPublished = existing.status === "PUBLISHED" || existing.publishedAt !== null;
+  const shouldVersion = questionsProvided && wasPublished;
+  const nextVersion = shouldVersion ? existing.version + 1 : existing.version;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    if (questionsProvided) {
+      const incoming = (input.questions ?? []).slice(0, MAX_QUESTIONS_PER_SURVEY);
+      const incomingIds = incoming.map((q) => q.id).filter((id): id is string => Boolean(id));
+      const existingVersionId = existing.questions[0]?.versionId ?? null;
+
+      // Remove questions the admin deleted (answers cascade only for unreferenced rows).
+      await tx.surveyQuestion.deleteMany({
+        where: { surveyId, ...(incomingIds.length ? { id: { notIn: incomingIds } } : {}) },
+      });
+
+      for (let index = 0; index < incoming.length; index++) {
+        const question = incoming[index];
+        const order = index + 1;
+        const data = questionCreateData(question, { surveyId, order, createdById: userId });
+        if (question.id) {
+          await tx.surveyQuestion.update({
+            where: { id: question.id },
+            data: { ...data, order, code: question.code?.trim() || `Q${order}` },
+          });
+        } else {
+          await tx.surveyQuestion.create({
+            data: {
+              ...data,
+              order,
+              code: question.code?.trim() || `Q${order}`,
+              versionId: shouldVersion ? null : existingVersionId,
+            },
+          });
+        }
+      }
+    }
+
+    return tx.survey.update({
+      where: { id: surveyId },
+      data: {
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.topic !== undefined ? { topic: input.topic.trim() } : {}),
+        ...(input.description !== undefined ? { description: input.description.trim() } : {}),
+        ...(input.stakeholder !== undefined ? { stakeholder: input.stakeholder.trim() } : {}),
+        ...(input.interviewMethod !== undefined ? { interviewMethod: input.interviewMethod } : {}),
+        ...(input.interviewMode !== undefined ? { interviewMode: input.interviewMode } : {}),
+        ...(input.language !== undefined ? { language: input.language } : {}),
+        ...(input.respondentGroup !== undefined ? { respondentGroup: input.respondentGroup } : {}),
+        ...(input.location !== undefined ? { location: input.location } : {}),
+        ...(input.startsAt !== undefined ? { startsAt: input.startsAt } : {}),
+        ...(input.expiresAt !== undefined ? { expiresAt: input.expiresAt } : {}),
+        ...(input.targetRespondents !== undefined
+          ? { targetRespondents: input.targetRespondents }
+          : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.aiProvider !== undefined ? { aiProvider: input.aiProvider } : {}),
+        settings: serializeSurveySettings(settings),
+        ...(questionsProvided
+          ? {
+              questionCount: incomingCount(input.questions),
+              version: nextVersion,
+              ...(input.status === "PUBLISHED" ? { publishedAt: new Date() } : {}),
+            }
+          : {}),
+      },
+      include: {
+        questions: { orderBy: { order: "asc" } },
+        versions: { orderBy: { version: "desc" } },
+        createdBy: { select: { id: true, fullName: true } },
+        _count: { select: { responses: true, respondents: true, sessions: true, questions: true, qrTokens: true } },
+      },
+    });
+  });
+
+  await logAudit({
+    action: "SURVEY_UPDATED",
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    details: {
+      questionsProvided,
+      versioned: shouldVersion,
+      version: updated.version,
+      note: input.changeNote ?? null,
+    },
+    ip: meta.ip,
+    userAgent: meta.userAgent,
+  });
+
+  return updated;
+}
+
+function incomingCount(questions: QuestionInput[] | undefined) {
+  return (questions ?? []).slice(0, MAX_QUESTIONS_PER_SURVEY).length;
+}

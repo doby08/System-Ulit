@@ -1,0 +1,74 @@
+export async function getOverviewMetrics(filters: AnalyticsFilters = {}) {
+  const responseWhere = buildResponseWhere(filters);
+
+  const [
+    totalSurveys,
+    activeSurveys,
+    closedOrPublished,
+    draftSurveys,
+    totalResponses,
+    completedResponses,
+    totalRespondents,
+    likertRows,
+    offlinePending,
+    syncedResponses,
+    failedSyncs,
+    conflicts,
+    lastSync,
+    durations,
+  ] = await Promise.all([
+    prisma.survey.count(),
+    prisma.survey.count({ where: { status: "PUBLISHED" } }),
+    prisma.survey.count({ where: { status: { in: ["PUBLISHED", "CLOSED"] } } }),
+    prisma.survey.count({ where: { status: "DRAFT" } }),
+    prisma.response.count({ where: responseWhere }),
+    prisma.response.count({ where: { ...responseWhere, status: "COMPLETE" } }),
+    prisma.respondent.count(),
+    prisma.likertResponse.findMany({
+      where: filters.surveyId ? { surveyId: filters.surveyId } : {},
+      select: { score: true, normalized: true },
+    }),
+    prisma.syncRecord.count({ where: { status: "PENDING" } }),
+    prisma.syncRecord.count({ where: { status: "SYNCED" } }),
+    prisma.syncRecord.count({ where: { status: "FAILED" } }),
+    prisma.syncRecord.count({ where: { status: "CONFLICT" } }),
+    prisma.syncRecord.findFirst({
+      where: { status: "SYNCED" },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+    prisma.response.findMany({
+      where: responseWhere,
+      select: { durationSec: true },
+      take: 5000,
+    }),
+  ]);
+
+  const averageLikertScore = likertRows.length
+    ? round(average(likertRows.map((r) => r.score)), 2)
+    : 0;
+  const satisfactionPercent = likertRows.length
+    ? round(average(likertRows.map((row) => (row.normalized ?? 0) * 100)), 1)
+    : 0;
+
+  return {
+    totalSurveys,
+    activeSurveys,
+    completedSurveys: closedOrPublished,
+    draftSurveys,
+    totalResponses,
+    completedInterviews: completedResponses,
+    completionRate: totalResponses ? round((completedResponses / totalResponses) * 100, 1) : 0,
+    totalRespondents,
+    averageLikertScore,
+    averageSatisfactionPercent: satisfactionPercent,
+    offlinePending,
+    syncedResponses,
+    failedSyncs,
+    conflicts,
+    lastSyncAt: lastSync?.updatedAt?.toISOString() ?? null,
+    averageDurationSec: durations.length
+      ? Math.round(average(durations.map((r) => r.durationSec)))
+      : 0,
+  };
+}

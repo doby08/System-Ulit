@@ -1,0 +1,136 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapBankItemRecord } from "@/lib/server/serializers";
+import { bankImportSchema, bankItemUpdateSchema, tagSchema } from "@/lib/server/validation";
+import { logAudit } from "@/lib/server/auth";
+import { stringifyTags } from "@/lib/utils";
+
+type BankContext = { params: Promise<{ bankId: string }> };
+
+/** PATCH /api/admin/bank/[bankId] — edit, favourite, archive. */
+export async function PATCH_BANK(request: NextRequest, { params }: BankContext) {
+  await requireAdminApi();
+  const { bankId } = await params;
+  const body = await readJson(request, bankItemUpdateSchema);
+  const item = await prisma.questionBankItem.update({
+    where: { id: bankId },
+    data: {
+      ...(body.text !== undefined ? { text: body.text.trim() } : {}),
+      ...(body.category !== undefined ? { category: body.category } : {}),
+      ...(body.type !== undefined ? { type: body.type } : {}),
+      ...(body.tags !== undefined ? { tags: stringifyTags(body.tags) } : {}),
+      ...(body.difficulty !== undefined ? { difficulty: body.difficulty } : {}),
+      ...(body.relevanceScore !== undefined ? { relevanceScore: body.relevanceScore } : {}),
+      ...(body.interviewMethod !== undefined ? { interviewMethod: body.interviewMethod } : {}),
+      ...(body.language !== undefined ? { language: body.language } : {}),
+      ...(body.stakeholder !== undefined ? { stakeholder: body.stakeholder } : {}),
+      ...(body.options !== undefined
+        ? { options: body.options ? JSON.stringify(body.options) : null }
+        : {}),
+      ...(body.likertScale !== undefined ? { likertScale: body.likertScale } : {}),
+      ...(body.isFavorite !== undefined ? { isFavorite: body.isFavorite } : {}),
+      ...(body.isArchived !== undefined ? { isArchived: body.isArchived } : {}),
+    },
+  });
+  return ok(mapBankItemRecord(item));
+}
+
+/** DELETE /api/admin/bank/[bankId] — remove a bank item. */
+export async function DELETE_BANK(_request: NextRequest, { params }: BankContext) {
+  await requireAdminApi();
+  const { bankId } = await params;
+  await prisma.questionBankItem.delete({ where: { id: bankId } });
+  return ok({ deleted: true });
+}
+
+/** POST /api/admin/bank/import — copy bank items into a survey. */
+export async function POST_BANK_IMPORT(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, bankImportSchema);
+  const survey = await prisma.survey.findUnique({
+    where: { id: body.surveyId },
+    include: { questions: { select: { id: true } } },
+  });
+  if (!survey) return ok({ imported: 0, message: "Survey not found." });
+  const items = await prisma.questionBankItem.findMany({ where: { id: { in: body.ids } } });
+  const base = survey.questions.length;
+  await prisma.surveyQuestion.createMany({
+    data: items.map((item, index) => ({
+      surveyId: body.surveyId,
+      order: base + index + 1,
+      code: `Q${base + index + 1}`,
+      text: item.text,
+      originalText: item.text,
+      type: item.type,
+      category: item.category,
+      tags: item.tags,
+      difficulty: item.difficulty,
+      relevanceScore: item.relevanceScore,
+      isRequired: true,
+      options: item.options,
+      likertScale: item.likertScale,
+      aiGenerated: item.aiGenerated,
+      bankItemId: item.id,
+      allowFollowUp: false,
+      isCore: true,
+      createdById: user.id,
+    })),
+  });
+  await prisma.questionBankItem.updateMany({
+    where: { id: { in: body.ids } },
+    data: { usageCount: { increment: 1 } },
+  });
+  await prisma.survey.update({
+    where: { id: body.surveyId },
+    data: { questionCount: base + items.length },
+  });
+  return ok({ imported: items.length });
+}
+
+/** GET /api/admin/bank/tags — taxonomy + facet counts. */
+export async function GET_TAGS() {
+  await requireAdminApi();
+  const [tags, categories, types] = await Promise.all([
+    prisma.questionTag.findMany({
+      orderBy: { name: "asc" },
+      include: { _count: { select: { links: true } } },
+    }),
+    prisma.questionBankItem.groupBy({ by: ["category"], _count: { _all: true } }),
+    prisma.questionBankItem.groupBy({ by: ["type"], _count: { _all: true } }),
+  ]);
+  return ok({
+    tags: tags.map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      color: tag.color,
+      links: tag._count.links,
+    })),
+    categories: categories
+      .filter((c) => c.category)
+      .map((c) => ({ category: c.category, count: c._count._all })),
+    types: types.map((t) => ({ type: t.type, count: t._count._all })),
+  });
+}
+
+/** POST /api/admin/bank/tags — create a taxonomy tag. */
+export async function POST_TAG(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, tagSchema);
+  const tag = await prisma.questionTag.upsert({
+    where: { name: body.name.trim() },
+    create: { name: body.name.trim(), color: body.color ?? "#6366F1" },
+    update: { color: body.color ?? "#6366F1" },
+  });
+  await logAudit({
+    action: "TAG_CREATED",
+    entity: "QuestionTag",
+    entityId: tag.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { name: tag.name },
+  });
+  return ok({ id: tag.id, name: tag.name, color: tag.color }, { status: 201 });
+}
+
+export { fail };

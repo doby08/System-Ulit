@@ -1,0 +1,124 @@
+import { NextRequest } from "next/server";
+import { fail, getIp, getUserAgent, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { mapReportRecord } from "@/lib/server/serializers";
+import { logAudit } from "@/lib/server/auth";
+import { generateAndSaveReport, parseReportContent } from "@/lib/server/reports";
+import { paginationSchema, reportCreateSchema } from "@/lib/server/validation";
+
+/** GET /api/admin/reports — saved reports list. */
+export async function GET_REPORTS(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const { page, pageSize } = paginationSchema.parse({
+    page: url.searchParams.get("page") ?? undefined,
+    pageSize: url.searchParams.get("pageSize") ?? undefined,
+  });
+  const surveyId = url.searchParams.get("surveyId") ?? undefined;
+  const reportType = url.searchParams.get("reportType") ?? undefined;
+
+  const where = {
+    ...(surveyId ? { surveyId } : {}),
+    ...(reportType ? { reportType } : {}),
+  };
+  const [total, items] = await Promise.all([
+    prisma.report.count({ where }),
+    prisma.report.findMany({
+      where,
+      orderBy: { generatedAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: {
+        survey: { select: { id: true, title: true, topic: true } },
+        createdBy: { select: { id: true, fullName: true } },
+      },
+    }),
+  ]);
+  return ok({ items: items.map(mapReportRecord), total, page, pageSize });
+}
+
+/** POST /api/admin/reports — generate + persist a new report. */
+export async function POST_REPORT(request: NextRequest) {
+  const user = await requireAdminApi();
+  const body = await readJson(request, reportCreateSchema);
+  const { report, content } = await generateAndSaveReport({
+    surveyId: body.surveyId,
+    reportType: body.reportType,
+    title: body.title,
+    generatedBy: user.fullName || user.username,
+    createdById: user.id,
+    filters: body.filters,
+  });
+  await logAudit({
+    action: "REPORT_GENERATED",
+    entity: "Report",
+    entityId: report.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { surveyId: body.surveyId, reportType: body.reportType },
+    ip: getIp(request),
+    userAgent: getUserAgent(request),
+  });
+  return ok({ report: mapReportRecord(report), content }, { status: 201 });
+}
+
+type ReportContext = { params: Promise<{ reportId: string }> };
+
+/** GET /api/admin/reports/[reportId] — saved report content (for preview/export). */
+export async function GET_REPORT(_request: NextRequest, { params }: ReportContext) {
+  await requireAdminApi();
+  const { reportId } = await params;
+  const record = await prisma.report.findUnique({
+    where: { id: reportId },
+    include: {
+      survey: { select: { id: true, title: true, topic: true } },
+      createdBy: { select: { id: true, fullName: true } },
+    },
+  });
+  if (!record) return ok({ report: null, content: null });
+  return ok({ report: mapReportRecord(record), content: parseReportContent(record.content) });
+}
+
+/** DELETE /api/admin/reports/[reportId] — remove a saved report. */
+export async function DELETE_REPORT(_request: NextRequest, { params }: ReportContext) {
+  const user = await requireAdminApi();
+  const { reportId } = await params;
+  await prisma.report.delete({ where: { id: reportId } });
+  await logAudit({
+    action: "REPORT_DELETED",
+    entity: "Report",
+    entityId: reportId,
+    actorId: user.id,
+    actorName: user.username,
+    details: null,
+  });
+  return ok({ deleted: true });
+}
+
+/** POST /api/admin/reports/[reportId]/regenerate — rebuild from current data. */
+export async function POST_REGENERATE_REPORT(_request: NextRequest, { params }: ReportContext) {
+  const user = await requireAdminApi();
+  const { reportId } = await params;
+  const existing = await prisma.report.findUnique({ where: { id: reportId } });
+  if (!existing) return ok({ report: null });
+  const filters = existing.filters ? JSON.parse(existing.filters) : undefined;
+  const { report, content } = await generateAndSaveReport({
+    surveyId: existing.surveyId,
+    reportType: existing.reportType as "SUMMARY" | "DETAILED" | "COMPARATIVE",
+    title: existing.title,
+    generatedBy: user.fullName || user.username,
+    createdById: user.id,
+    filters,
+  });
+  await prisma.report.delete({ where: { id: reportId } });
+  await logAudit({
+    action: "REPORT_REGENERATED",
+    entity: "Report",
+    entityId: report.id,
+    actorId: user.id,
+    actorName: user.username,
+    details: { previousReportId: reportId },
+  });
+  return ok({ report: mapReportRecord(report), content });
+}
+
+export { fail };

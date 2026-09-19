@@ -1,0 +1,98 @@
+/**
+ * Saves one response — used by both the online submit endpoint and offline sync.
+ * Idempotent and conflict-safe.
+ */
+export async function savePublicResponse(
+  payload: ResponseSubmitPayload,
+  meta: { ip?: string | null; userAgent?: string | null } = {},
+): Promise<SubmitResult> {
+  void meta;
+  const { qr, questions, settings } = await resolveTokenQuestionSet(payload.token);
+  void settings;
+  const surveyId = qr.surveyId;
+  const versionId = qr.versionId ?? null;
+  const contentHash = payload.contentHash ?? computeContentHash(payload);
+
+  const duplicate = await checkDuplicateOrConflict(payload, { surveyId, contentHash });
+  if (duplicate) return duplicate;
+
+  const { response, answeredCount } = await writeResponseCore(payload, {
+    surveyId,
+    qrId: qr.id,
+    versionId,
+    interviewMode: qr.survey.interviewMode,
+    defaultLanguage: qr.survey.language,
+    questions,
+    contentHash,
+  });
+
+  // Non-critical QR bookkeeping (outside the transaction)
+  await incrementQrResponses(qr.id);
+  if ((payload.status ?? "COMPLETE") === "COMPLETE") await incrementQrCompletions(qr.id);
+
+  return {
+    clientResponseId: payload.clientResponseId,
+    serverResponseId: response.id,
+    status: "CREATED",
+    answersSaved: answeredCount,
+    message:
+      payload.source === "OFFLINE_SYNC"
+        ? "Offline response synchronized to the central database."
+        : "Response saved to the central database.",
+  };
+}
+
+/** Syncs a queue of offline responses; each item is isolated so one failure cannot block others. */
+export async function saveResponseBatch(
+  payloads: ResponseSubmitPayload[],
+  meta: { ip?: string | null; userAgent?: string | null } = {},
+): Promise<SyncBatchResult> {
+  const results: SubmitResult[] = [];
+  let synced = 0;
+  let duplicates = 0;
+  let conflicts = 0;
+  let failed = 0;
+
+  for (const payload of payloads) {
+    try {
+      const result = await savePublicResponse({ ...payload, source: "OFFLINE_SYNC" }, meta);
+      results.push(result);
+      if (result.status === "CREATED" || result.status === "UPDATED") synced += 1;
+      else if (result.status === "DUPLICATE") duplicates += 1;
+      else conflicts += 1;
+    } catch (error) {
+      failed += 1;
+      const message = error instanceof Error ? error.message : "Sync failed";
+      results.push({
+        clientResponseId: payload.clientResponseId,
+        serverResponseId: "",
+        status: "CONFLICT",
+        answersSaved: 0,
+        message,
+      });
+      try {
+        await prisma.syncRecord.create({
+          data: {
+            clientResponseId: payload.clientResponseId,
+            deviceId: payload.deviceId ?? null,
+            direction: "UP",
+            status: "FAILED",
+            attempt: payload.revision ?? 1,
+            message: message.slice(0, 900),
+          },
+        });
+      } catch {
+        // ignored — the client will retry and re-report
+      }
+    }
+  }
+
+  return {
+    synced,
+    duplicates,
+    conflicts,
+    failed,
+    results,
+    lastSyncAt: new Date().toISOString(),
+  };
+}

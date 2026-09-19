@@ -1,0 +1,69 @@
+let comparative: ReportContent["comparative"];
+  if (params.reportType === "COMPARATIVE") {
+    const byGroup = analytics.byGroup.slice(0, 8).map((entry) => ({
+      label: entry.label,
+      responses: entry.value,
+      averageSatisfaction: overview.averageSatisfactionPercent,
+      completionRate: overview.completionRate,
+    }));
+    comparative = byGroup.length
+      ? byGroup
+      : [
+          {
+            label: survey.title,
+            responses: overview.totalResponses,
+            averageSatisfaction: overview.averageSatisfactionPercent,
+            completionRate: overview.completionRate,
+          },
+        ];
+  }
+
+  const typeName =
+    params.reportType === "SUMMARY"
+      ? "Summary"
+      : params.reportType === "DETAILED"
+        ? "Detailed"
+        : "Comparative";
+  const title = params.title ?? `${typeName} Report — ${survey.title}`;
+
+  return {
+    title,
+    reportType: params.reportType,
+    generatedAt: new Date().toISOString(),
+    generatedBy: params.generatedBy,
+    survey: {
+      id: survey.id,
+      title: survey.title,
+      topic: survey.topic,
+      description: survey.description,
+      stakeholder: survey.stakeholder,
+      interviewMethod: interviewMethodMeta(survey.interviewMethod).label,
+      interviewMode: interviewModeMeta(survey.interviewMode).label,
+      language: languageLabel(survey.language),
+      version: survey.version,
+      status: survey.status,
+      createdAt: survey.createdAt.toISOString(),
+      publishedAt: survey.publishedAt?.toISOString() ?? null,
+    },
+    filters,
+    overview,
+    trend: analytics.trend,
+    demographics: analytics.byGroup,
+    questions,
+    sentiment: analytics.sentiment,
+    keywords: insights.keywords.slice(0, 25),
+    themes: insights.themes.slice(0, 10),
+    painPoints: insights.painPoints,
+    suggestions: insights.suggestions,
+    concerns: insights.concerns,
+    rawResponses,
+    aiSummary: insights.summary,
+    aiProvider: insights.aiProvider,
+    ...(comparative ? { comparative } : {}),
+    likertReference: {
+      scale5: likertLabels(5, survey.language),
+      scale7: likertLabels(7, survey.language),
+      defaultScale: settings.likert.defaultScale,
+    },
+  } as ReportContent;
+}

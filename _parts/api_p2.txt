@@ -1,0 +1,52 @@
+import { NextRequest } from "next/server";
+import { enforceRateLimit, fail, getIp, getUserAgent, ok, readJson } from "@/lib/server/api";
+import { responseSubmitSchema, syncBatchSchema } from "@/lib/server/validation-public";
+import { savePublicResponse, saveResponseBatch } from "@/lib/server/submission";
+
+/**
+ * POST /api/public/submit — one online (or replayed offline) response.
+ * Idempotent via clientResponseId; conflict-safe by content hash.
+ */
+export async function POST_SUBMIT(request: NextRequest) {
+  try {
+    const ip = getIp(request);
+    enforceRateLimit(
+      `submit:${ip}`,
+      60,
+      60_000,
+      "Too many submissions from this device. Please wait a moment.",
+    );
+    const body = await readJson(request, responseSubmitSchema);
+    const result = await savePublicResponse(body, {
+      ip,
+      userAgent: getUserAgent(request),
+    });
+    return ok(result, { status: result.status === "CREATED" ? 201 : 200 });
+  } catch (error) {
+    return fail(error);
+  }
+}
+
+/**
+ * POST /api/public/sync — batch synchronization of queued offline responses.
+ * Each item is processed independently; duplicates and conflicts are reported.
+ */
+export async function POST_SYNC(request: NextRequest) {
+  try {
+    const ip = getIp(request);
+    enforceRateLimit(
+      `sync:${ip}`,
+      30,
+      60_000,
+      "Too many sync attempts. Please wait a moment.",
+    );
+    const body = await readJson(request, syncBatchSchema);
+    const result = await saveResponseBatch(body.responses, {
+      ip,
+      userAgent: getUserAgent(request),
+    });
+    return ok(result);
+  } catch (error) {
+    return fail(error);
+  }
+}

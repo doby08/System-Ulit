@@ -1,0 +1,546 @@
+// ============================================================================
+// AI Interview Assistance & Survey Instrument System â€” Prisma schema
+// ----------------------------------------------------------------------------
+// PORTABILITY: this schema intentionally contains NO provider-specific features
+// (no enums, no scalar lists, no Json columns, no native type attributes) so the
+// exact same models run on PostgreSQL (production) and SQLite (zero-config dev).
+//
+//   Production : provider = "postgresql" -> npm run setup:pg
+//   Local dev  : auto-generated SQLite mirror -> npm run setup:local
+//
+// JSON payloads are stored in String columns (documented per field) and are
+// validated with Zod at the API boundary.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  username     String    @unique
+  email        String?   @unique
+  fullName     String
+  passwordHash String
+  role         String    @default("ADMIN")
+  avatarColor  String?
+  phone        String?
+  organization String?
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  surveys        Survey[]           @relation("SurveyAuthor")
+  surveyVersions SurveyVersion[]    @relation("VersionAuthor")
+  questions      SurveyQuestion[]   @relation("QuestionAuthor")
+  bankItems      QuestionBankItem[] @relation("BankAuthor")
+  respondents    Respondent[]       @relation("RespondentCreatedBy")
+  sessions       InterviewSession[] @relation("SessionCreatedBy")
+  qrTokens       QRToken[]          @relation("QRTokenAuthor")
+  reports        Report[]           @relation("ReportAuthor")
+  syncRecords    SyncRecord[]       @relation("SyncActor")
+  auditLogs      AuditLog[]         @relation("AuditActor")
+  settings       AppSetting[]       @relation("SettingUpdatedBy")
+  recordings     SessionRecording[] @relation("RecordingAuthor")
+
+  @@index([username])
+}
+
+model AppSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  scope       String   @default("GLOBAL")
+  updatedById String?
+  updatedBy   User?    @relation("SettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+model Survey {
+  id                String    @id @default(uuid())
+  title             String
+  topic             String
+  description       String
+  stakeholder       String
+  interviewMethod   String
+  interviewMode     String
+  language          String    @default("en")
+  status            String    @default("DRAFT")
+  version           Int       @default(1)
+  respondentGroup   String?
+  location          String?
+  startsAt          DateTime?
+  expiresAt         DateTime?
+  targetRespondents Int?
+  settings          String?
+  aiProvider        String?
+  questionCount     Int       @default(0)
+  publishedAt       DateTime?
+  archivedAt        DateTime?
+  createdById       String
+  createdBy         User      @relation("SurveyAuthor", fields: [createdById], references: [id])
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  versions     SurveyVersion[]     @relation("SurveyVersions")
+  questions    SurveyQuestion[]    @relation("SurveyQuestions")
+  translations SurveyTranslation[] @relation("SurveyTranslations")
+  sessions     InterviewSession[]  @relation("SurveySessions")
+  respondents  Respondent[]        @relation("SurveyRespondents")
+  responses    Response[]          @relation("SurveyResponses")
+  qrTokens     QRToken[]           @relation("SurveyQRTokens")
+  reports      Report[]            @relation("SurveyReports")
+  syncRecords  SyncRecord[]        @relation("SurveySyncRecords")
+  likertScores LikertResponse[]    @relation("SurveyLikertScores")
+  groupMembers GroupMember[]       @relation("SurveyGroupMembers")
+
+  @@index([status])
+  @@index([createdById])
+}
+
+model SurveyVersion {
+  id              String    @id @default(uuid())
+  surveyId        String
+  version         Int
+  title           String
+  topic           String
+  description     String
+  stakeholder     String
+  interviewMethod String
+  interviewMode   String
+  language        String
+  settings        String?
+  snapshot        String
+  changeNote      String?
+  publishedAt     DateTime?
+  createdById     String?
+  createdBy       User?     @relation("VersionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  survey    Survey             @relation("SurveyVersions", fields: [surveyId], references: [id], onDelete: Cascade)
+  questions SurveyQuestion[]   @relation("VersionQuestions")
+  sessions  InterviewSession[] @relation("VersionSessions")
+  responses Response[]         @relation("VersionResponses")
+  qrTokens  QRToken[]          @relation("VersionQRTokens")
+
+  @@unique([surveyId, version])
+  @@index([surveyId])
+}
+model SurveyQuestion {
+  id             String   @id @default(uuid())
+  surveyId       String
+  versionId      String?
+  bankItemId     String?
+  order          Int      @default(1)
+  code           String?
+  text           String
+  originalText   String?
+  helpText       String?
+  type           String
+  category       String?
+  tags           String?
+  difficulty     String?
+  relevanceScore Int?
+  isRequired     Boolean  @default(true)
+  options        String?
+  likertScale    Int?
+  aiGenerated    Boolean  @default(false)
+  aiSource       String?
+  allowFollowUp  Boolean  @default(false)
+  isCore         Boolean  @default(true)
+  createdById    String?
+  createdBy      User?    @relation("QuestionAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  survey       Survey                @relation("SurveyQuestions", fields: [surveyId], references: [id], onDelete: Cascade)
+  version      SurveyVersion?        @relation("VersionQuestions", fields: [versionId], references: [id], onDelete: SetNull)
+  bankItem     QuestionBankItem?     @relation("BankItemQuestions", fields: [bankItemId], references: [id], onDelete: SetNull)
+  answers      Answer[]              @relation("QuestionAnswers")
+  likertScores LikertResponse[]      @relation("QuestionLikertScores")
+  translations QuestionTranslation[] @relation("QuestionTranslations")
+  tagLinks     QuestionTagLink[]     @relation("QuestionTagLinks")
+
+  @@index([surveyId, order])
+  @@index([versionId])
+}
+
+model QuestionBankItem {
+  id              String   @id @default(uuid())
+  text            String
+  category        String?
+  type            String
+  tags            String?
+  difficulty      String?
+  relevanceScore  Int?
+  interviewMethod String?
+  language        String   @default("en")
+  stakeholder     String?
+  options         String?
+  likertScale     Int?
+  usageCount      Int      @default(0)
+  isFavorite      Boolean  @default(false)
+  isArchived      Boolean  @default(false)
+  aiGenerated     Boolean  @default(false)
+  createdById     String?
+  createdBy       User?    @relation("BankAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  usedIn       SurveyQuestion[]      @relation("BankItemQuestions")
+  translations QuestionTranslation[] @relation("BankTranslations")
+  tagLinks     QuestionTagLink[]     @relation("BankTagLinks")
+
+  @@index([category])
+  @@index([isArchived])
+}
+
+model QuestionTranslation {
+  id         String   @id @default(uuid())
+  questionId String?
+  bankItemId String?
+  language   String
+  text       String
+  source     String   @default("AI")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  question SurveyQuestion?  @relation("QuestionTranslations", fields: [questionId], references: [id], onDelete: Cascade)
+  bankItem QuestionBankItem? @relation("BankTranslations", fields: [bankItemId], references: [id], onDelete: Cascade)
+
+  @@index([language])
+}
+model QuestionTag {
+  id        String            @id @default(uuid())
+  name      String            @unique
+  color     String            @default("#6366F1")
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  links     QuestionTagLink[] @relation("TagLinks")
+}
+
+model QuestionTagLink {
+  id         String   @id @default(uuid())
+  tagId      String
+  questionId String?
+  bankItemId String?
+  createdAt  DateTime @default(now())
+
+  tag      QuestionTag       @relation("TagLinks", fields: [tagId], references: [id], onDelete: Cascade)
+  question SurveyQuestion?   @relation("QuestionTagLinks", fields: [questionId], references: [id], onDelete: Cascade)
+  bankItem QuestionBankItem? @relation("BankTagLinks", fields: [bankItemId], references: [id], onDelete: Cascade)
+
+  @@index([tagId])
+}
+
+model SurveyTranslation {
+  id          String   @id @default(uuid())
+  surveyId    String
+  language    String
+  title       String
+  topic       String
+  description String
+  source      String   @default("AI")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  survey Survey @relation("SurveyTranslations", fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@unique([surveyId, language])
+}
+
+model Respondent {
+  id              String   @id @default(uuid())
+  respondentCode  String   @unique
+  name            String?
+  ageGroup        String?
+  gender          String?
+  location        String?
+  email           String?
+  phone           String?
+  respondentGroup String?
+  organization    String?
+  demographics    String?
+  language        String?
+  device          String?
+  notes           String?
+  surveyId        String?
+  createdById     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  survey       Survey?            @relation("SurveyRespondents", fields: [surveyId], references: [id], onDelete: SetNull)
+  createdBy    User?              @relation("RespondentCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  sessions     InterviewSession[] @relation("RespondentSessions")
+  responses    Response[]         @relation("RespondentResponses")
+  answers      Answer[]           @relation("RespondentAnswers")
+  likertScores LikertResponse[]   @relation("RespondentLikertScores")
+  groupMembers GroupMember[]      @relation("MemberRespondent")
+
+  @@index([respondentGroup])
+  @@index([surveyId])
+}
+
+model InterviewSession {
+  id           String    @id @default(uuid())
+  sessionCode  String    @unique
+  surveyId     String
+  versionId    String?
+  respondentId String?
+  mode         String    @default("INDIVIDUAL")
+  groupName    String?
+  status       String    @default("IN_PROGRESS")
+  notes        String?
+  device       String?
+  networkState String?
+  language     String?
+  startedAt    DateTime  @default(now())
+  completedAt  DateTime?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  survey       Survey?           @relation("SurveySessions", fields: [surveyId], references: [id], onDelete: Cascade)
+  version      SurveyVersion?    @relation("VersionSessions", fields: [versionId], references: [id], onDelete: SetNull)
+  respondent   Respondent?       @relation("RespondentSessions", fields: [respondentId], references: [id], onDelete: SetNull)
+  createdBy    User?             @relation("SessionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  responses    Response[]        @relation("SessionResponses")
+  answers      Answer[]          @relation("SessionAnswers")
+  likertScores LikertResponse[]  @relation("SessionLikertScores")
+  members      GroupMember[]     @relation("SessionMembers")
+  recording    SessionRecording? @relation("SessionRecording")
+
+  @@index([surveyId, status])
+}
+model GroupMember {
+  id           String   @id @default(uuid())
+  sessionId    String
+  surveyId     String
+  respondentId String?
+  name         String
+  role         String?
+  answersCount Int      @default(0)
+  joinedAt     DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  session    InterviewSession @relation("SessionMembers", fields: [sessionId], references: [id], onDelete: Cascade)
+  survey     Survey           @relation("SurveyGroupMembers", fields: [surveyId], references: [id], onDelete: Cascade)
+  respondent Respondent?      @relation("MemberRespondent", fields: [respondentId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId])
+}
+
+model SessionRecording {
+  id          String    @id @default(uuid())
+  sessionId   String    @unique
+  kind        String    @default("AUDIO")
+  status      String    @default("STOPPED")
+  mimeType    String?
+  durationSec Int       @default(0)
+  sizeBytes   Int       @default(0)
+  storageRef  String?
+  meta        String?
+  startedAt   DateTime?
+  stoppedAt   DateTime?
+  createdById String?
+  createdBy   User?     @relation("RecordingAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  session InterviewSession @relation("SessionRecording", fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model Response {
+  id               String    @id @default(uuid())
+  clientResponseId String    @unique
+  surveyId         String
+  versionId        String?
+  sessionId        String?
+  respondentId     String?
+  qrTokenId        String?
+  language         String    @default("en")
+  status           String    @default("COMPLETE")
+  source           String    @default("ONLINE")
+  deviceId         String?
+  device           String?
+  networkState     String?
+  answersCount     Int       @default(0)
+  totalQuestions   Int       @default(0)
+  completionRate   Float     @default(0)
+  durationSec      Int       @default(0)
+  revision         Int       @default(1)
+  contentHash      String?
+  syncStatus       String    @default("SYNCED")
+  capturedAt       DateTime?
+  submittedAt      DateTime  @default(now())
+  syncedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  survey      Survey            @relation("SurveyResponses", fields: [surveyId], references: [id], onDelete: Cascade)
+  version     SurveyVersion?    @relation("VersionResponses", fields: [versionId], references: [id], onDelete: SetNull)
+  session     InterviewSession? @relation("SessionResponses", fields: [sessionId], references: [id], onDelete: SetNull)
+  respondent  Respondent?       @relation("RespondentResponses", fields: [respondentId], references: [id], onDelete: SetNull)
+  answers     Answer[]          @relation("ResponseAnswers")
+  syncRecords SyncRecord[]      @relation("ResponseSyncRecords")
+
+  @@index([surveyId, submittedAt])
+  @@index([syncStatus])
+}
+
+model Answer {
+  id             String    @id @default(uuid())
+  responseId     String
+  questionId     String
+  surveyId       String
+  respondentId   String?
+  sessionId      String?
+  valueText      String?
+  valueNumber    Float?
+  valueOption    String?
+  valueOptions   String?
+  valueBool      Boolean?
+  isFollowUp     Boolean   @default(false)
+  parentAnswerId String?
+  followUpSource String?
+  aiSentiment    String?
+  aiKeywords     String?
+  aiThemes       String?
+  answeredAt     DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  response   Response            @relation("ResponseAnswers", fields: [responseId], references: [id], onDelete: Cascade)
+  question   SurveyQuestion      @relation("QuestionAnswers", fields: [questionId], references: [id], onDelete: Cascade)
+  respondent Respondent?         @relation("RespondentAnswers", fields: [respondentId], references: [id], onDelete: SetNull)
+  session    InterviewSession?   @relation("SessionAnswers", fields: [sessionId], references: [id], onDelete: SetNull)
+  likert     LikertResponse?     @relation("AnswerLikert")
+
+  @@index([questionId])
+  @@index([responseId])
+}
+model LikertResponse {
+  id           String   @id @default(uuid())
+  answerId     String   @unique
+  surveyId     String
+  questionId   String
+  respondentId String?
+  sessionId    String?
+  scale        Int
+  score        Int
+  label        String
+  normalized   Float
+  isPositive   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  answer     Answer            @relation("AnswerLikert", fields: [answerId], references: [id], onDelete: Cascade)
+  survey     Survey            @relation("SurveyLikertScores", fields: [surveyId], references: [id], onDelete: Cascade)
+  question   SurveyQuestion    @relation("QuestionLikertScores", fields: [questionId], references: [id], onDelete: Cascade)
+  respondent Respondent?       @relation("RespondentLikertScores", fields: [respondentId], references: [id], onDelete: SetNull)
+  session    InterviewSession? @relation("SessionLikertScores", fields: [sessionId], references: [id], onDelete: SetNull)
+
+  @@index([surveyId, questionId])
+}
+
+model QRToken {
+  id          String    @id @default(uuid())
+  surveyId    String
+  versionId   String?
+  token       String    @unique
+  label       String?
+  status      String    @default("ACTIVE")
+  scans       Int       @default(0)
+  responses   Int       @default(0)
+  completions Int       @default(0)
+  language    String    @default("en")
+  settings    String?
+  expiresAt   DateTime?
+  lastScanAt  DateTime?
+  disabledAt  DateTime?
+  createdById String
+  createdBy   User      @relation("QRTokenAuthor", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  survey  Survey         @relation("SurveyQRTokens", fields: [surveyId], references: [id], onDelete: Cascade)
+  version SurveyVersion? @relation("VersionQRTokens", fields: [versionId], references: [id], onDelete: SetNull)
+
+  @@index([surveyId])
+}
+
+model Report {
+  id            String   @id @default(uuid())
+  surveyId      String
+  surveyVersion Int?
+  reportType    String   @default("SUMMARY")
+  title         String
+  status        String   @default("READY")
+  filters       String?
+  content       String
+  summary       String?
+  responseIds   String?
+  createdById   String
+  createdBy     User     @relation("ReportAuthor", fields: [createdById], references: [id])
+  generatedAt   DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  survey Survey @relation("SurveyReports", fields: [surveyId], references: [id], onDelete: Cascade)
+
+  @@index([surveyId, reportType])
+}
+
+model SyncRecord {
+  id               String    @id @default(uuid())
+  surveyId         String?
+  responseId       String?
+  clientResponseId String?
+  deviceId         String?
+  direction        String    @default("UP")
+  status           String    @default("PENDING")
+  attempt          Int       @default(0)
+  message          String?
+  payload          String?
+  serverSnapshot   String?
+  localSnapshot    String?
+  resolution       String?
+  resolvedAt       DateTime?
+  actorId          String?
+  actor            User?     @relation("SyncActor", fields: [actorId], references: [id], onDelete: SetNull)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  survey   Survey?   @relation("SurveySyncRecords", fields: [surveyId], references: [id], onDelete: Cascade)
+  response Response? @relation("ResponseSyncRecords", fields: [responseId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([clientResponseId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  actorId   String?
+  actorName String   @default("system")
+  action    String
+  entity    String
+  entityId  String?
+  severity  String   @default("INFO")
+  details   String?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+}

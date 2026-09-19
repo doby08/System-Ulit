@@ -1,0 +1,47 @@
+import { NextRequest } from "next/server";
+import { ApiError, enforceRateLimit, fail, getIp, ok, readJson } from "@/lib/server/api";
+import { publicFollowUpSchema } from "@/lib/server/validation-public";
+import { resolvePublicToken } from "@/lib/server/qr";
+import { generateFollowUp } from "@/lib/ai/follow-up";
+import { prisma } from "@/lib/prisma";
+
+/**
+ * POST /api/public/follow-up — Semi-Structured / Unstructured follow-up probe.
+ * Generates a context-aware question from the respondent's actual answer.
+ */
+export async function POST_FOLLOW_UP(request: NextRequest) {
+  try {
+    enforceRateLimit(
+      `followup:${getIp(request)}`,
+      40,
+      60_000,
+      "Too many follow-up requests. Please wait a moment.",
+    );
+    const body = await readJson(request, publicFollowUpSchema);
+    const qr = await resolvePublicToken(body.token);
+
+    const question = await prisma.surveyQuestion.findFirst({
+      where: { id: body.questionId, surveyId: qr.surveyId },
+      select: { id: true, text: true },
+    });
+    if (!question) {
+      throw new ApiError("That question does not belong to this survey.", 400, {
+        code: "QUESTION_MISMATCH",
+      });
+    }
+
+    const result = await generateFollowUp({
+      topic: qr.survey.topic,
+      stakeholder: qr.survey.stakeholder,
+      question: question.text,
+      answer: body.answer,
+      interviewMethod: qr.survey.interviewMethod,
+      language: body.language ?? qr.survey.language,
+      askedFollowUps: body.askedFollowUps ?? [],
+    });
+
+    return ok(result);
+  } catch (error) {
+    return fail(error);
+  }
+}

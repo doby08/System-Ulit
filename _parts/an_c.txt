@@ -1,0 +1,74 @@
+export function toDistribution(
+  entries: { label: string; value: number }[],
+): DistributionPoint[] {
+  const total = entries.reduce((acc, entry) => acc + entry.value, 0);
+  return entries.map((entry) => ({
+    label: entry.label,
+    value: entry.value,
+    percentage: total ? round((entry.value / total) * 100, 1) : 0,
+  }));
+}
+
+export function countBy<T>(items: T[], key: (item: T) => string | null | undefined) {
+  const counts = new Map<string, number>();
+  for (const item of items) {
+    const k = key(item) ?? "Unknown";
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  return counts;
+}
+
+export function methodDistribution(frequencies: Map<string, number>) {
+  const known = ["STRUCTURED", "SEMI_STRUCTURED", "UNSTRUCTURED"];
+  return toDistribution(
+    known.map((value) => ({
+      label: interviewMethodMeta(value).short,
+      value: frequencies.get(value) ?? 0,
+    })),
+  );
+}
+
+export function modeDistribution(frequencies: Map<string, number>) {
+  const known = ["INDIVIDUAL", "GROUP", "RANDOM"];
+  return toDistribution(
+    known.map((value) => ({
+      label: interviewModeMeta(value).label,
+      value: frequencies.get(value) ?? 0,
+    })),
+  );
+}
+
+/** Daily response trend (used by the line graph). */
+export function buildTrend(
+  rows: { submittedAt: Date; status: string }[],
+  from?: string,
+  to?: string,
+): TrendPoint[] {
+  const buckets = new Map<string, { responses: number; completed: number }>();
+  for (const row of rows) {
+    const day = new Date(row.submittedAt).toISOString().slice(0, 10);
+    const bucket = buckets.get(day) ?? { responses: 0, completed: 0 };
+    bucket.responses += 1;
+    if (row.status === "COMPLETE") bucket.completed += 1;
+    buckets.set(day, bucket);
+  }
+  if (!buckets.size) return [];
+
+  const keys = [...buckets.keys()].sort();
+  const start = from ? new Date(from) : new Date(keys[0]);
+  const lastDate = new Date(keys[keys.length - 1]);
+  const end = to ? new Date(to) : lastDate;
+  const last = end > lastDate ? lastDate : end;
+
+  const series: TrendPoint[] = [];
+  const cursor = new Date(start.toISOString().slice(0, 10));
+  let iterations = 0;
+  while (cursor <= last && iterations < 400) {
+    const day = cursor.toISOString().slice(0, 10);
+    const bucket = buckets.get(day) ?? { responses: 0, completed: 0 };
+    series.push({ date: day, responses: bucket.responses, completed: bucket.completed });
+    cursor.setDate(cursor.getDate() + 1);
+    iterations += 1;
+  }
+  return series;
+}

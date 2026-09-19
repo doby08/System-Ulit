@@ -1,0 +1,102 @@
+export function mapResponseSummary(record: {
+  id: string;
+  clientResponseId: string;
+  surveyId: string;
+  sessionId: string | null;
+  respondentId: string | null;
+  language: string;
+  status: string;
+  source: string;
+  syncStatus: string;
+  answersCount: number;
+  totalQuestions: number;
+  completionRate: number;
+  durationSec: number;
+  device: string | null;
+  networkState: string | null;
+  revision: number;
+  submittedAt: Date;
+  syncedAt: Date | null;
+  createdAt: Date;
+  survey?: { id: string; title: string; interviewMethod: string; interviewMode: string } | null;
+  respondent?: {
+    id: string;
+    name: string | null;
+    respondentCode: string;
+    respondentGroup: string | null;
+  } | null;
+  session?: { id: string; sessionCode: string; groupName: string | null; mode: string } | null;
+}) {
+  return {
+    id: record.id,
+    clientResponseId: record.clientResponseId,
+    surveyId: record.surveyId,
+    surveyTitle: record.survey?.title ?? "Deleted survey",
+    interviewMethod: record.survey?.interviewMethod ?? null,
+    interviewMode: record.survey?.interviewMode ?? null,
+    respondentId: record.respondentId,
+    respondentName:
+      record.respondent?.name ?? record.respondent?.respondentCode ?? "Anonymous respondent",
+    respondentGroup: record.respondent?.respondentGroup ?? null,
+    sessionCode: record.session?.sessionCode ?? null,
+    groupName: record.session?.groupName ?? null,
+    language: record.language,
+    status: record.status,
+    source: record.source,
+    syncStatus: record.syncStatus,
+    answersCount: record.answersCount,
+    totalQuestions: record.totalQuestions,
+    completionRate: record.completionRate,
+    durationSec: record.durationSec,
+    device: record.device,
+    networkState: record.networkState,
+    revision: record.revision,
+    submittedAt: iso(record.submittedAt),
+    syncedAt: iso(record.syncedAt),
+    createdAt: iso(record.createdAt),
+  };
+}
+
+export type ResponseSummaryDTO = ReturnType<typeof mapResponseSummary>;
+
+export function mapQrTokenRecord(
+  record: {
+    id: string;
+    token: string;
+    surveyId: string;
+    label: string | null;
+    status: string;
+    scans: number;
+    responses: number;
+    completions: number;
+    language: string;
+    expiresAt: Date | null;
+    lastScanAt: Date | null;
+    createdAt: Date;
+    survey: { id: string; title: string; topic: string; status: string };
+    version?: { version: number } | null;
+  },
+  options: { includeImage?: boolean; dataUrl?: string; svg?: string } = {},
+): QRCodeSummary & { surveyStatus: string; dataUrl?: string; svg?: string } {
+  return {
+    id: record.id,
+    token: record.token,
+    surveyId: record.surveyId,
+    surveyTitle: record.survey.title,
+    topic: record.survey.topic,
+    label: record.label,
+    status: record.status,
+    scans: record.scans,
+    responses: record.responses,
+    completions: record.completions,
+    createdAt: iso(record.createdAt) ?? new Date().toISOString(),
+    expiresAt: iso(record.expiresAt),
+    lastScanAt: iso(record.lastScanAt),
+    publicUrl: publicSurveyUrl(record.token),
+    version: record.version?.version ?? null,
+    surveyStatus: record.survey.status,
+    ...(options.includeImage ? { dataUrl: options.dataUrl, svg: options.svg } : {}),
+  };
+}
+
+export type QrTokenDTO = ReturnType<typeof mapQrTokenRecord>;

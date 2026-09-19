@@ -1,0 +1,100 @@
+import { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { fail, ok, readJson, requireAdminApi } from "@/lib/server/api";
+import { logAudit } from "@/lib/server/auth";
+import {
+  getQuestionAnalyticsDetail,
+  getSurveyAnalytics,
+} from "@/lib/server/analytics";
+import { analyzeOpenEnded } from "@/lib/ai/insights";
+import { analyticsFilterQuerySchema } from "@/lib/server/validation-public";
+
+/** GET /api/admin/analytics — filtered analytics payload (all charts + cards). */
+export async function GET_ANALYTICS(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const filters = analyticsFilterQuerySchema.parse({
+    surveyId: url.searchParams.get("surveyId") ?? undefined,
+    respondentGroup: url.searchParams.get("respondentGroup") ?? undefined,
+    interviewMethod: url.searchParams.get("method") ?? undefined,
+    interviewMode: url.searchParams.get("mode") ?? undefined,
+    language: url.searchParams.get("language") ?? undefined,
+    from: url.searchParams.get("from") ?? undefined,
+    to: url.searchParams.get("to") ?? undefined,
+    includeOffline: url.searchParams.get("includeOffline") ?? undefined,
+  });
+
+  const [base, questions] = await Promise.all([
+    getSurveyAnalytics(filters),
+    getQuestionAnalyticsDetail(filters, { includeText: true }),
+  ]);
+
+  return ok({
+    ...base,
+    questions,
+    filters,
+    generatedAt: new Date().toISOString(),
+  });
+}
+
+/** GET /api/admin/analytics/unstructured — AI text analytics for open responses. */
+export async function GET_UNSTRUCTURED(request: NextRequest) {
+  await requireAdminApi();
+  const url = new URL(request.url);
+  const filters = analyticsFilterQuerySchema.parse({
+    surveyId: url.searchParams.get("surveyId") ?? undefined,
+    respondentGroup: url.searchParams.get("respondentGroup") ?? undefined,
+    interviewMethod: url.searchParams.get("method") ?? undefined,
+    interviewMode: url.searchParams.get("mode") ?? undefined,
+    language: url.searchParams.get("language") ?? undefined,
+    from: url.searchParams.get("from") ?? undefined,
+    to: url.searchParams.get("to") ?? undefined,
+  });
+
+  const answers = await prisma.answer.findMany({
+    where: {
+      ...(filters.surveyId ? { surveyId: filters.surveyId } : {}),
+      valueText: { not: null },
+    },
+    select: { valueText: true },
+    take: 1500,
+  });
+  const texts = answers.map((a) => a.valueText ?? "").filter((t) => t.trim().length > 2);
+
+  const survey = filters.surveyId
+    ? await prisma.survey.findUnique({
+        where: { id: filters.surveyId },
+        select: { topic: true, stakeholder: true, language: true },
+      })
+    : null;
+
+  const insights = await analyzeOpenEnded({
+    texts,
+    topic: survey?.topic ?? "Survey responses",
+    stakeholder: survey?.stakeholder,
+    language: survey?.language ?? filters.language ?? "en",
+  });
+
+  return ok({ ...insights, aiEnhanced: insights.aiEnhanced, count: texts.length });
+}
+
+/** GET /api/admin/analytics/facets — filter dropdown options. */
+export async function GET_FACETS() {
+  await requireAdminApi();
+  const [surveys, groups, languages] = await Promise.all([
+    prisma.survey.findMany({
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, interviewMethod: true, interviewMode: true },
+      take: 300,
+    }),
+    prisma.respondent.groupBy({ by: ["respondentGroup"], _count: { _all: true } }),
+    prisma.response.groupBy({ by: ["language"], _count: { _all: true } }),
+  ]);
+  return ok({
+    surveys,
+    groups: groups.filter((g) => g.respondentGroup).map((g) => g.respondentGroup as string),
+    languages: languages.map((l) => l.language),
+  });
+}
+
+export { fail };

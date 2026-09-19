@@ -1,0 +1,27 @@
+/**
+ * 61 frames — enough for the maximum of 50 unique questions per survey.
+ * Ordered so a natural mix of categories appears within the first N.
+ */
+export const QUESTION_FRAMES: QuestionFrame[] = [
+  { id: "sat-1", category: "Satisfaction", type: "LIKERT_5", difficulty: "EASY", interaction: "SATISFACTION", tags: ["satisfaction", "core"], text: "How satisfied are you with {subject}?" },
+  { id: "sat-2", category: "Satisfaction", type: "RATING", difficulty: "EASY", interaction: "SATISFACTION", tags: ["rating", "core"], text: "Overall, how would you rate the quality of {subject}?" },
+  { id: "sat-3", category: "Satisfaction", type: "LIKERT_5", difficulty: "EASY", interaction: "SATISFACTION", tags: ["expectations"], text: "The {subject} consistently meet my needs and expectations." },
+  { id: "sat-4", category: "Satisfaction", type: "LIKERT_5", difficulty: "MEDIUM", interaction: "SATISFACTION", tags: ["value"], text: "The {subject} provide good value for the time and effort I invest." },
+  { id: "sat-5", category: "Satisfaction", type: "LIKERT_7", difficulty: "MEDIUM", interaction: "SATISFACTION", tags: ["overall"], text: "Overall, I am satisfied with the quality of {subject}." },
+  { id: "qual-1", category: "Service Quality", type: "RATING", difficulty: "EASY", interaction: "QUALITY", tags: ["reliability"], text: "How would you rate the reliability of {subject}?" },
+  { id: "qual-2", category: "Service Quality", type: "RATING", difficulty: "EASY", interaction: "QUALITY", tags: ["responsiveness"], text: "How would you rate the responsiveness of {subject}?" },
+  { id: "qual-3", category: "Service Quality", type: "LIKERT_5", difficulty: "MEDIUM", interaction: "QUALITY", tags: ["timeliness"], text: "{subjectCap} are delivered within a reasonable time." },
+  { id: "qual-4", category: "Service Quality", type: "LIKERT_7", difficulty: "MEDIUM", interaction: "QUALITY", tags: ["consistency"], text: "The quality of {subject} is consistent across every interaction." },
+  { id: "qual-5", category: "Service Quality", type: "YES_NO", difficulty: "EASY", interaction: "QUALITY", tags: ["standards"], text: "Do {subject} meet the standards you expect from them?" },
+  { id: "acc-1", category: "Accessibility", type: "LIKERT_5", difficulty: "EASY", interaction: "ACCESS", tags: ["access"], text: "How easy is it to access {subject}?" },
+  { id: "acc-2", category: "Accessibility", type: "LIKERT_5", difficulty: "EASY", interaction: "ACCESS", tags: ["availability"], text: "How convenient are the operating hours or availability of {subject}?" },
+  { id: "acc-3", category: "Accessibility", type: "LIKERT_5", difficulty: "MEDIUM", interaction: "ACCESS", tags: ["reachability"], text: "I can reach {subject} without difficulty whenever I need them." },
+  { id: "acc-4", category: "Accessibility", type: "YES_NO", difficulty: "EASY", interaction: "ACCESS", tags: ["availability"], text: "Are {subject} readily available to {stakeholder}?" },
+  { id: "acc-5", category: "Accessibility", type: "RATING", difficulty: "MEDIUM", interaction: "ACCESS", tags: ["inclusion"], text: "How would you rate the accessibility of {subject} for persons with disabilities?" },
+  { id: "acc-6", category: "Accessibility", type: "MULTIPLE_CHOICE", difficulty: "MEDIUM", interaction: "ACCESS", tags: ["channel"], options: BASE_OPTIONS.platform, text: "Through which channel do you usually access {subject}?" },
+  { id: "com-1", category: "Communication", type: "LIKERT_5", difficulty: "EASY", interaction: "COMMUNICATION", tags: ["clarity"], text: "How clearly is information about {subject} communicated to {stakeholder}?" },
+  { id: "com-2", category: "Communication", type: "LIKERT_5", difficulty: "MEDIUM", interaction: "COMMUNICATION", tags: ["timeliness"], text: "How quickly do you receive updates regarding {subject}?" },
+  { id: "com-3", category: "Communication", type: "MULTI_SELECT", difficulty: "MEDIUM", interaction: "COMMUNICATION", tags: ["channels"], options: BASE_OPTIONS.channels, text: "Which communication channels do you use to learn about {subject}?" },
+  { id: "com-4", category: "Communication", type: "YES_NO", difficulty: "EASY", interaction: "COMMUNICATION", tags: ["clarity"], text: "Is the information about {subject} easy to understand?" },
+  { id: "com-5", category: "Communication", type: "LIKERT_5", difficulty: "MEDIUM", interaction: "COMMUNICATION", tags: ["feedback"], text: "I receive a clear response whenever I raise concerns about {subject}." },
+];

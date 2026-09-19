@@ -1,0 +1,150 @@
+/**
+ * Question frame library + topic parsing used by the built-in offline AI engine.
+ * Frames are topic-agnostic and interpolated with a parsed topic context so that
+ * generated questions stay relevant to the administrator's prepared topic,
+ * stakeholder, interview method, interview mode and language.
+ */
+
+export type FrameInteraction =
+  | "SATISFACTION"
+  | "QUALITY"
+  | "ACCESS"
+  | "COMMUNICATION"
+  | "STAFF"
+  | "FACILITIES"
+  | "PROCESS"
+  | "AWARENESS"
+  | "TRUST"
+  | "IMPROVEMENT"
+  | "RECOMMENDATION"
+  | "COMPARATIVE"
+  | "BEHAVIOUR";
+
+export type QuestionFrame = {
+  id: string;
+  category: string;
+  type: string;
+  difficulty: "EASY" | "MEDIUM" | "HARD";
+  text: string;
+  options?: string[];
+  tags: string[];
+  interaction: FrameInteraction;
+};
+
+export type TopicContext = {
+  topic: string;
+  /** Primary subject noun phrase, e.g. "university services". */
+  subject: string;
+  /** Capitalised subject for sentence-initial use. */
+  subjectCap: string;
+  /** Stakeholder plural, lower-case, e.g. "students". */
+  stakeholder: string;
+  /** Stakeholder singular-ish for "as a ..." constructs. */
+  stakeholderOne: string;
+  fullTopic: string;
+};
+
+const LEAD_IN =
+  /^(student|faculty|staff|parent|alumni|employer|customer|citizen|employee|beneficiary|community|supplier|respondent|client|patient|user)s?\s+/i;
+const SATISFACTION_PREFIX =
+  /(satisfaction|perception|feedback|assessment|evaluation|experience|views?|opinions?|attitudes?|sentiments?|insights?|study|survey|interview|analysis|level of\s+\w+)\s*(with|on|about|of|regarding|toward|towards|for)\s+/i;
+
+/**
+ * Extracts the real subject of a topic so questions read naturally.
+ * "Student Satisfaction with University Services" -> subject "university services".
+ */
+export function parseTopic(topic: string, stakeholder: string): TopicContext {
+  const cleanTopic = (topic || "the service").trim().replace(/\s+/g, " ");
+  let subject = cleanTopic;
+
+  const prefixMatch = cleanTopic.match(SATISFACTION_PREFIX);
+  if (prefixMatch) {
+    const afterPrefix = cleanTopic.slice((prefixMatch.index ?? 0) + prefixMatch[0].length).trim();
+    if (afterPrefix.length > 3) subject = afterPrefix;
+  } else {
+    const withoutLead = cleanTopic.replace(LEAD_IN, "").trim();
+    if (withoutLead.length > 3) subject = withoutLead;
+  }
+
+  subject = subject.replace(/[.?!]+$/, "").trim();
+  if (!subject) subject = cleanTopic;
+
+  const lower = subject.charAt(0).toLowerCase() + subject.slice(1);
+  const stakeholderPlural = (stakeholder || "respondents").toLowerCase();
+  const stakeholderOne = stakeholderPlural
+    .replace(/\s*\/.*$/, "")
+    .replace(/ies$/, "y")
+    .replace(/s$/, "")
+    .trim();
+
+  return {
+    topic: cleanTopic,
+    subject: lower,
+    subjectCap: lower.charAt(0).toUpperCase() + lower.slice(1),
+    stakeholder: stakeholderPlural,
+    stakeholderOne: stakeholderOne || "respondent",
+    fullTopic: cleanTopic,
+  };
+}
+
+export function interpolate(frame: string, ctx: TopicContext) {
+  return frame
+    .replace(/\{subjectCap\}/g, ctx.subjectCap)
+    .replace(/\{subject\}/g, ctx.subject)
+    .replace(/\{topic\}/g, ctx.topic)
+    .replace(/\{stakeholder\}/g, ctx.stakeholder)
+    .replace(/\{stakeholderOne\}/g, ctx.stakeholderOne)
+    .replace(/\s+([.?!])/g, "$1")
+    .trim();
+}
+
+/** Rewrites a closed question into an open-ended conversational prompt. */
+export function toConversationalPrompt(text: string, ctx: TopicContext) {
+  const t = text.trim();
+  const rewrite = (regex: RegExp, replacement: string) => {
+    const m = t.match(regex);
+    return m ? replacement.replace(/\$1/g, m[1] ?? ctx.subject).replace(/\$2/g, m[2] ?? ctx.subject) : null;
+  };
+  return (
+    rewrite(/^how satisfied are you with (.+?)\?$/i, "Tell me about your level of satisfaction with $1.") ??
+    rewrite(/^overall, how would you rate the quality of (.+?)\?$/i, "Describe the quality of $1 in your own words.") ??
+    rewrite(/^how would you rate the (.+?) of (.+?)\?$/i, "Share your assessment of the $1 of $2.") ??
+    rewrite(/^how would you rate (.+?)\?$/i, "Talk me through your assessment of $1.") ??
+    rewrite(/^how easy is it to access (.+?)\?$/i, "Describe your experience of accessing $1.") ??
+    rewrite(/^how (\w+) (?:is|are) (.+?)\?$/i, "Explain how $1 $2 are, based on your own experience.") ??
+    rewrite(/^how (?:much|many) (.+?)\?$/i, "Elaborate on $1.") ??
+    rewrite(/^(?:would|do|did|is|are|can|have|has) (.+?)\?$/i, "Tell me more about this: $1?") ??
+    `In your own words, what are your thoughts on: ${t.replace(/\?$/, "")}?`
+  );
+}
+
+const BASE_OPTIONS = {
+  channels: [
+    "Email",
+    "Text / SMS",
+    "Social media",
+    "Official website",
+    "Printed materials",
+    "In person",
+    "Phone call",
+    "Others",
+  ],
+  frequency: ["Daily", "Weekly", "Monthly", "A few times a year", "Rarely", "Never"],
+  waiting: [
+    "Under 15 minutes",
+    "15–30 minutes",
+    "30–60 minutes",
+    "1–2 hours",
+    "More than 2 hours",
+    "More than a day",
+  ],
+  platform: [
+    "Mobile app",
+    "Website",
+    "Physical office / counter",
+    "Phone / hotline",
+    "Chat or messaging",
+    "Others",
+  ],
+  none: ["None of the above"],
+};

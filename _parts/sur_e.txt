@@ -1,0 +1,113 @@
+/* -------------------------------------------------------------------------- */
+/* Lifecycle operations                                                        */
+/* -------------------------------------------------------------------------- */
+export async function setSurveyStatus(
+  userId: string,
+  surveyId: string,
+  status: "DRAFT" | "PUBLISHED" | "CLOSED" | "ARCHIVED",
+  meta: ActorMeta = {},
+) {
+  const survey = await getSurveyOr404(surveyId);
+  const data: Record<string, unknown> = { status };
+  if (status === "ARCHIVED") data.archivedAt = new Date();
+  if (status === "PUBLISHED" && !survey.publishedAt) data.publishedAt = new Date();
+
+  const updated = await prisma.survey.update({ where: { id: surveyId }, data });
+  await logAudit({
+    action: `SURVEY_${status}`,
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    details: { from: survey.status, to: status },
+    ip: meta.ip,
+    userAgent: meta.userAgent,
+  });
+  return updated;
+}
+
+export async function deleteSurvey(
+  userId: string,
+  surveyId: string,
+  options: { force?: boolean; meta?: ActorMeta } = {},
+) {
+  const survey = await getSurveyOr404(surveyId);
+  const responseCount = survey._count.responses;
+  if (responseCount > 0 && !options.force) {
+    throw new ApiError(
+      `This survey already has ${responseCount} recorded response(s). Archive it instead, or confirm permanent deletion.`,
+      409,
+      { code: "SURVEY_HAS_RESPONSES", details: { responseCount } },
+    );
+  }
+  await prisma.survey.delete({ where: { id: surveyId } });
+  await logAudit({
+    action: "SURVEY_DELETED",
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    severity: "WARNING",
+    details: { title: survey.title, responses: responseCount, forced: Boolean(options.force) },
+    ip: options.meta?.ip,
+    userAgent: options.meta?.userAgent,
+  });
+  return { deleted: true };
+}
+
+export async function duplicateSurvey(userId: string, surveyId: string, meta: ActorMeta = {}) {
+  const survey = await getSurveyOr404(surveyId);
+  const copy = await prisma.survey.create({
+    data: {
+      title: `${survey.title} (Copy)`,
+      topic: survey.topic,
+      description: survey.description,
+      stakeholder: survey.stakeholder,
+      interviewMethod: survey.interviewMethod,
+      interviewMode: survey.interviewMode,
+      language: survey.language,
+      respondentGroup: survey.respondentGroup,
+      location: survey.location,
+      expiresAt: survey.expiresAt,
+      targetRespondents: survey.targetRespondents,
+      settings: survey.settings,
+      aiProvider: survey.aiProvider,
+      status: "DRAFT",
+      version: 1,
+      questionCount: survey.questions.length,
+      createdById: userId,
+      questions: {
+        create: survey.questions.map((question, index) => ({
+          order: index + 1,
+          code: `Q${index + 1}`,
+          text: question.text,
+          originalText: question.originalText,
+          helpText: question.helpText,
+          type: question.type,
+          category: question.category,
+          tags: question.tags,
+          difficulty: question.difficulty,
+          relevanceScore: question.relevanceScore,
+          isRequired: question.isRequired,
+          options: question.options,
+          likertScale: question.likertScale,
+          aiGenerated: question.aiGenerated,
+          aiSource: question.aiSource,
+          allowFollowUp: question.allowFollowUp,
+          isCore: question.isCore,
+          createdById: userId,
+        })),
+      },
+    },
+    include: { questions: { orderBy: { order: "asc" } } },
+  });
+
+  await logAudit({
+    action: "SURVEY_DUPLICATED",
+    entity: "Survey",
+    entityId: copy.id,
+    actorId: userId,
+    details: { sourceSurveyId: surveyId, title: copy.title },
+    ip: meta.ip,
+    userAgent: meta.userAgent,
+  });
+  return copy;
+}

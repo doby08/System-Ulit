@@ -1,0 +1,107 @@
+/** Generates a validated question set, with automatic offline fallback. */
+export async function generateQuestionSet(options: GenerateOptions): Promise<GenerateResult> {
+  const count = Math.max(1, Math.min(MAX_QUESTIONS_PER_SURVEY, options.count));
+  const provider = resolveProvider();
+
+  if (provider === "openai") {
+    const result = await chatJson(
+      {
+        system: systemPrompt({ ...options, count }),
+        user: userPrompt({ ...options, count }),
+        temperature: options.interviewMethod === "UNSTRUCTURED" ? 0.85 : 0.6,
+        maxTokens: Math.min(6000, 160 * count + 400),
+      },
+      aiResponseSchema,
+    );
+
+    if (result.ok) {
+      const seen = new Set<string>();
+      const questions: GeneratedQuestion[] = [];
+      for (const row of result.data.questions) {
+        const key = row.text.trim().toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        questions.push(toGeneratedQuestion(row, questions.length, options.language));
+        if (questions.length >= count) break;
+      }
+      const warnings: string[] = [];
+      if (questions.length && questions.length < count) {
+        warnings.push(
+          `AI returned ${questions.length} of ${count} requested questions; the offline engine completed the set.`,
+        );
+        for (const candidate of generateQuestionsOffline({ ...options, count })) {
+          if (questions.length >= count) break;
+          if (seen.has(candidate.text.toLowerCase())) continue;
+          seen.add(candidate.text.toLowerCase());
+          questions.push(candidate);
+        }
+      }
+      if (questions.length) {
+        return {
+          provider: "openai",
+          model: result.model,
+          topic: options.topic,
+          language: options.language,
+          interviewMethod: options.interviewMethod,
+          questions: questions.map((q, i) => ({ ...q, code: `Q${i + 1}`, order: i + 1 })),
+          warnings,
+        };
+      }
+    }
+
+    const failureReason = result.ok ? "AI returned no usable questions." : result.error;
+    return {
+      provider: "offline-engine",
+      model: aiModel(),
+      topic: options.topic,
+      language: options.language,
+      interviewMethod: options.interviewMethod,
+      questions: generateQuestionsOffline({ ...options, count }),
+      fallbackReason: failureReason,
+      warnings: [
+        `AI generation was unavailable (${failureReason}). The built-in offline question engine produced the questions instead.`,
+      ],
+    };
+  }
+
+  return {
+    provider: "offline-engine",
+    topic: options.topic,
+    language: options.language,
+    interviewMethod: options.interviewMethod,
+    questions: generateQuestionsOffline({ ...options, count }),
+    warnings: [
+      "OPENAI_API_KEY is not configured — questions were produced by the built-in offline engine. Add a key to .env to enable live AI generation.",
+    ],
+  };
+}
+
+/** Regenerates a single question (used by the “Regenerate” action on a question row). */
+export async function regenerateQuestion(
+  options: GenerateOptions & { exclude: string[] },
+): Promise<GeneratedQuestion | null> {
+  const provider = resolveProvider();
+  const exclude = new Set(options.exclude.map((t) => t.trim().toLowerCase()));
+
+  if (provider === "openai") {
+    const result = await chatJson(
+      {
+        system: systemPrompt({ ...options, count: 1 }),
+        user: [
+          userPrompt({ ...options, count: 1 }),
+          "Generate exactly ONE alternative question that is clearly different from these existing questions:",
+          options.exclude.slice(0, 40).map((t, i) => `${i + 1}. ${t}`).join("\n"),
+        ].join("\n"),
+        temperature: 0.9,
+        maxTokens: 700,
+      },
+      aiResponseSchema,
+    );
+    if (result.ok) {
+      const row = result.data.questions.find((q) => !exclude.has(q.text.trim().toLowerCase()));
+      if (row) return toGeneratedQuestion(row, 0, options.language);
+    }
+  }
+
+  return generateSingleQuestionOffline({ ...options, count: 1 });
+}
