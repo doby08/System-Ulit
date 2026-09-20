@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: wpu-ai-interview-survey
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run render-build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: 22.12.0
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: wpu-aiis-db
+          property: connectionString
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: SESSION_TTL_HOURS
+        value: 12
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: AI_PROVIDER
+        value: offline
+      - key: SEED_ADMIN_USERNAME
+        value: Admin
+      - key: SEED_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_SAMPLE_DATA
+        value: "false"
+
+databases:
+  - name: wpu-aiis-db
+    plan: free
