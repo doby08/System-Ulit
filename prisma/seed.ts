@@ -17,7 +17,7 @@ import { stringifyTags, seededShuffle } from "../src/lib/utils";
 const prisma = new PrismaClient();
 
 const SEED_USERNAME = process.env.SEED_ADMIN_USERNAME ?? "Admin";
-const SEED_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "Admin123";
+const SEED_PASSWORD = process.env.SEED_ADMIN_PASSWORD ?? "admin123";
 const SEED_NAME = process.env.SEED_ADMIN_NAME ?? "System Administrator";
 const SEED_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@aiis.local";
 const WITH_SAMPLES = (process.env.SEED_SAMPLE_DATA ?? "true").toLowerCase() !== "false";
