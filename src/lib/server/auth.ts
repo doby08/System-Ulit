@@ -100,20 +100,21 @@ export async function issueSession(user: {
   username: string;
   fullName: string;
   role: string;
-}) {
+}, remember = false) {
+  const maxAge = remember ? sessionTtlSeconds() * 30 : sessionTtlSeconds();
   const token = await createSessionToken({
     sub: user.id,
     username: user.username,
     role: user.role,
     name: user.fullName,
-  });
+  }, maxAge);
   const store = await cookies();
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: sessionTtlSeconds(),
+    maxAge,
   });
   return token;
 }

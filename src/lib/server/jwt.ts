@@ -28,8 +28,8 @@ function secretKey() {
   return new TextEncoder().encode(secret);
 }
 
-export async function createSessionToken(claims: SessionClaims) {
-  const ttl = sessionTtlSeconds();
+export async function createSessionToken(claims: SessionClaims, ttlSeconds?: number) {
+  const ttl = ttlSeconds ?? sessionTtlSeconds();
   return new SignJWT({ username: claims.username, role: claims.role, name: claims.name })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(claims.sub)

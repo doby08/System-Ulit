@@ -180,6 +180,18 @@ export const loginSchema = z.object({
   remember: z.boolean().optional(),
 });
 
+export const registerSchema = z.object({
+  username: z.string().min(3).max(60),
+  password: z.string().min(8).max(200),
+  confirmPassword: z.string().min(8).max(200),
+  fullName: z.string().min(2).max(160),
+  email: z.union([z.string().email().max(200), z.literal("")]).optional(),
+  organization: z.string().max(160).optional(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match.",
+  path: ["confirmPassword"],
+});
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(4).max(200),
   newPassword: z.string().min(8).max(200),

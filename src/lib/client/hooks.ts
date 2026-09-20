@@ -51,9 +51,10 @@ export function useAuth() {
 export async function login(
   username: string,
   password: string,
+  remember = false,
 ): Promise<{ user: SessionUser } | ApiError> {
   try {
-    const data = await api.post<{ user: SessionUser }>("/api/auth/login", { username, password });
+    const data = await api.post<{ user: SessionUser }>("/api/auth/login", { username, password, remember });
     return { user: data.user };
   } catch (e) {
     if (e && typeof e === "object" && "status" in e) return e as ApiError;

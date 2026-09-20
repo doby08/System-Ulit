@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     const body = await readJson(request, loginSchema);
     const identifier = body.username.trim();
+    const remember = body.remember === true;
 
     // Case-insensitive match on username OR email (the form pre-fills "Admin").
     const user = await findUserByIdentifier(identifier);
@@ -63,7 +64,8 @@ export async function POST(request: NextRequest) {
       where: { id: user.id },
       data: { lastLoginAt: new Date() },
     });
-    await issueSession(user);
+    // Use extended session TTL when "Remember me" is checked.
+    await issueSession(user, remember);
     await logAudit({
       action: "LOGIN",
       entity: "User",
