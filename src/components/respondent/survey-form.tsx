@@ -41,7 +41,16 @@ function isAnswered(answer?: AnswerPayload): boolean {
   );
 }
 
-const DEMOGRAPHIC_KEYS = ["name", "respondentCode", "ageGroup", "gender", "location", "organization", "email"] as const;
+/**
+ * Demographic fields that may be shown to QR respondents.
+ * NOTE: "respondentCode" (Respondent ID) is deliberately excluded — after a QR scan the
+ * respondent should never have to invent a random ID. The server auto-generates the
+ * respondent code (`RSP-XXXXXX`) during submission so tracking still works.
+ */
+const DEMOGRAPHIC_KEYS = ["name", "ageGroup", "gender", "location", "organization", "email"] as const;
+
+/** Legacy/auto-generated identifiers that must never render on the public form. */
+const HIDDEN_RESPONDENT_FIELDS = new Set(["respondentcode", "respondent_id", "respondentid", "code", "id"]);
 
 export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
   const startedAt = useRef(Date.now());
@@ -53,7 +62,13 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
   const [done, setDone] = useState(false);
 
   const enabledDemographics = useMemo(
-    () => payload.settings.demographics.filter((d) => d.enabled && DEMOGRAPHIC_KEYS.includes(d.key as never)),
+    () =>
+      payload.settings.demographics.filter(
+        (d) =>
+          d.enabled &&
+          !HIDDEN_RESPONDENT_FIELDS.has(d.key.toLowerCase()) &&
+          DEMOGRAPHIC_KEYS.includes(d.key as never),
+      ),
     [payload.settings.demographics],
   );
 

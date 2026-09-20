@@ -60,9 +60,19 @@ export function LoginForm() {
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#05070F] text-white">
       <div className="absolute inset-0">
-        <Image src="/login-reference.jpg" alt="" fill priority className="object-cover object-center" />
-        <div className="absolute inset-0 bg-gradient-to-r from-[#05070F]/80 via-[#05070F]/35 to-[#05070F]/15" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#05070F]/70 via-transparent to-[#05070F]/30" />
+        {/* Campus background reference: image/Campusbackground.jpg (published as /wpu-campus.jpg) */}
+        <Image
+          src="/wpu-campus.jpg"
+          alt="Western Philippines University Main Campus, Aborlan, Palawan"
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-[62%_center]"
+        />
+        {/* Readability layers: navy fade on the left (hero side) + soft vignette for the glass card. */}
+        <div className="absolute inset-0 bg-gradient-to-r from-[#03060F]/95 via-[#05070F]/72 to-[#05070F]/25" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#05070F]/88 via-transparent to-[#05070F]/35" />
+        <div className="absolute inset-0 bg-[radial-gradient(115%_85%_at_72%_45%,rgba(5,7,15,0.62)_0%,rgba(5,7,15,0.18)_55%,transparent_100%)]" />
       </div>
       <div className="relative z-10 mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-5 sm:px-8 lg:px-10">
         <header className="flex items-center gap-3">
@@ -74,7 +84,7 @@ export function LoginForm() {
             <p className="text-xs text-slate-300 sm:text-sm">Aborlan, Palawan</p>
           </div>
         </header>
-        <main className="flex flex-1 flex-col items-center justify-center gap-10 py-8 lg:flex-row lg:gap-6 xl:gap-14">
+        <main className="flex flex-1 flex-col items-center justify-center gap-10 py-8 lg:flex-row lg:items-center lg:justify-between lg:gap-8 xl:gap-16">
           <section className="w-full max-w-xl text-center lg:text-left">
             <p className="text-[11px] font-medium uppercase tracking-[0.32em] text-slate-200/90 sm:text-xs">AI Assistance Interview System</p>
             <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] sm:text-5xl xl:text-6xl">Smarter Interviews.<br />
@@ -92,7 +102,7 @@ export function LoginForm() {
             </div>
           </section>
           <section className="w-full max-w-md">
-            <div className="rounded-3xl border border-cyan-300/25 bg-[#0A0F20]/70 p-6 backdrop-blur-xl sm:p-8">
+            <div className="rounded-3xl border border-cyan-300/25 bg-[#0A0F20]/72 p-6 shadow-[0_0_70px_-24px_rgba(34,211,238,0.55)] backdrop-blur-xl sm:p-8">
               <div className="flex flex-col items-center text-center">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-400 to-blue-600">
                   <Mic className="h-7 w-7 text-white" />

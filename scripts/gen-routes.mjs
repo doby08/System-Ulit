@@ -37,6 +37,7 @@ const ROUTES = [
   ["api/admin/reports", { GET: "GET_REPORTS", POST: "POST_REPORT" }, false],
   ["api/admin/reports/[reportId]", { GET: "GET_REPORT", DELETE: "DELETE_REPORT" }, true],
   ["api/admin/reports/[reportId]/regenerate", { POST: "POST_REGENERATE_REPORT" }, true],
+  ["api/admin/reports/[reportId]/download", { GET: "GET_REPORT_DOWNLOAD" }, true],
   ["api/admin/sync", { GET: "GET_SYNC" }, false],
   ["api/admin/sync/[syncId]/resolve", { POST: "POST_RESOLVE" }, true],
   ["api/admin/audit", { GET: "GET_AUDIT" }, false],

@@ -16,8 +16,12 @@ import type {
   SurveySettings,
 } from "@/lib/types";
 import type {
+  AnalyticsOverview,
   DashboardStats,
+  DistributionPoint,
+  QuestionAnalytics,
   ReportContent,
+  TrendPoint,
 } from "@/lib/types-analytics";
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Auth â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
@@ -301,44 +305,127 @@ export interface RespondentRecord {
   lastSeen?: string;
 }
 
-export async function generateReport(surveyId: string, reportType: string, filters: Record<string, unknown>): Promise<string> {
-  const result = await api.post<{ id: string }>("/api/admin/reports/generate", {
-    surveyId, reportType, filters,
+/**
+ * Generates and persists a report on the server.
+ * NOTE: the endpoint is POST /api/admin/reports (the old "/generate" suffix did not exist
+ * and caused every "Generate Report" click to fail with a 404).
+ */
+export async function generateReport(payload: {
+  surveyId: string;
+  reportType: "SUMMARY" | "DETAILED" | "COMPARATIVE";
+  title?: string;
+  filters?: Record<string, unknown>;
+}): Promise<GeneratedReport> {
+  return api.post<GeneratedReport>("/api/admin/reports", {
+    surveyId: payload.surveyId,
+    reportType: payload.reportType,
+    title: payload.title,
+    filters: payload.filters,
   });
-  return result.id ?? "";
 }
 
-export function useReports(filters?: Record<string, string>) {
+/** Rebuilds an existing report from the latest response data. */
+export async function regenerateReport(id: string): Promise<GeneratedReport> {
+  return api.post<GeneratedReport>(`/api/admin/reports/${id}/regenerate`);
+}
+
+/** Deletes a saved report. */
+export async function deleteReport(id: string): Promise<void> {
+  await api.delete(`/api/admin/reports/${id}`);
+}
+
+/** Direct download URL for a saved report export. */
+export function reportDownloadUrl(
+  id: string,
+  format: ReportExportFormat = "pdf",
+  inline = false,
+): string {
+  const params = new URLSearchParams({ format });
+  if (inline) params.set("disposition", "inline");
+  return `/api/admin/reports/${id}/download?${params.toString()}`;
+}
+
+export function useReports(filters?: { surveyId?: string; reportType?: string }) {
   const [data, setData] = useState<ReportRecord[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const qs = new URLSearchParams(filters ?? {}).toString();
-      const result = await api.get<{ items: ReportRecord[] }>(`/api/admin/reports${qs ? `?${qs}` : ""}`);
-      setData(result.items);
+      const qs = new URLSearchParams(
+        Object.entries(filters ?? {}).filter(([, value]) => Boolean(value)) as [string, string][],
+      ).toString();
+      const result = await api.get<{ items: ReportRecord[]; total: number }>(
+        `/api/admin/reports${qs ? `?${qs}` : ""}`,
+      );
+      setData(result.items ?? []);
     } catch (e) {
-      console.error(e);
+      setError(getErrorMessage(e));
+      setData([]);
     } finally {
       setLoading(false);
     }
-  }, [JSON.stringify(filters)]);
+  }, [JSON.stringify(filters ?? {})]);
 
   useEffect(() => { fetch(); }, [fetch]);
-  return { data, loading, error: null, refetch: fetch };
+  return { data, loading, error, refetch: fetch };
 }
 
+/** Loads one saved report together with its stored content. */
+export function useReportDetail(id: string) {
+  const [report, setReport] = useState<ReportRecord | null>(null);
+  const [content, setContent] = useState<ReportContent | null>(null);
+  const [loading, setLoading] = useState(Boolean(id));
+  const [error, setError] = useState<string | null>(null);
+
+  const fetch = useCallback(async () => {
+    if (!id) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.get<{ report: ReportRecord | null; content: ReportContent | null }>(
+        `/api/admin/reports/${id}`,
+      );
+      setReport(result.report);
+      setContent(result.content);
+      if (!result.report) setError("Report not found.");
+    } catch (e) {
+      setError(getErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => { fetch(); }, [fetch]);
+  return { report, content, loading, error, refetch: fetch };
+}
+
+export type ReportExportFormat = "pdf" | "word" | "excel" | "csv" | "json";
+
+/** Mirrors `mapReportRecord` on the server (the previous field names did not exist). */
 export interface ReportRecord {
   id: string;
   surveyId: string;
   surveyTitle: string;
-  topic: string;
+  surveyTopic: string | null;
+  surveyVersion: number | null;
   reportType: string;
+  reportTypeLabel: string;
+  title: string;
+  status: string;
+  summary: string | null;
+  createdByName: string | null;
+  generatedAt: string;
   createdAt: string;
-  reportStatus: string;
-  fileSizeBytes?: number | null;
-  versionAtGeneration?: number | null;
+  updatedAt: string;
+}
+
+/** Response of POST /api/admin/reports and the regenerate endpoint. */
+export interface GeneratedReport {
+  report: ReportRecord;
+  content: ReportContent;
 }
 
 export function useDashboard() {
@@ -403,29 +490,32 @@ export function useRespondents(params?: Record<string, string>) {
 
 export { useSvgQrImage } from "./useSvgQrImage";
 
+/** Server payload of GET /api/admin/analytics (matches getSurveyAnalytics + question detail). */
 export interface AnalyticsResult {
-  overview: {
-    totalResponses: number;
-    completionRate: number;
-    averageLikertScore: number;
-    averageSatisfactionPercent: number;
-    byMethod: { label: string; value: number }[];
-    byMode: { label: string; value: number }[];
-    byGroup: { label: string; value: number }[];
-    sentiment: { label: string; value: number; color?: string }[];
-    keywords: { keyword: string; count: number }[];
-    themes: { theme: string; count: number }[];
-    aiSummary?: string | null;
-  };
-  trend?: { date: string; responses: number }[];
-  statusMix?: { label: string; value: number; color?: string }[];
+  overview: AnalyticsOverview;
+  trend: TrendPoint[];
+  byMethod: DistributionPoint[];
+  byMode: DistributionPoint[];
+  byGroup: DistributionPoint[];
+  byLanguage: DistributionPoint[];
+  byDate: DistributionPoint[];
+  sentiment: DistributionPoint[];
+  statusMix: DistributionPoint[];
+  questions: QuestionAnalytics[];
+  keywords: { keyword: string; count: number; sentiment: string }[];
+  surveys: { id: string; title: string }[];
 }
 
+/**
+ * Analytics query filters.
+ * NOTE: the API expects `method` / `mode` (not interviewMethod/interviewMode) — sending the
+ * old key names silently ignored the filter.
+ */
 export interface AnalyticsFilters {
   surveyId?: string;
   respondentGroup?: string;
-  interviewMethod?: string;
-  interviewMode?: string;
+  method?: string;
+  mode?: string;
   language?: string;
   from?: string;
   to?: string;
@@ -439,9 +529,11 @@ export function useAnalytics(filters: AnalyticsFilters) {
 
   const fetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const qs = new URLSearchParams(Object.entries(filters).filter(([_, v]) => v)
-        .reduce((a: Record<string, string>, [k, v]) => { a[k] = String(v); return a; }, {})).toString();
+      const qs = new URLSearchParams(
+        Object.entries(filters).filter(([, value]) => Boolean(value)) as [string, string][],
+      ).toString();
       const result = await api.get<AnalyticsResult>(`/api/admin/analytics${qs ? `?${qs}` : ""}`);
       setData(result);
     } catch (e) {

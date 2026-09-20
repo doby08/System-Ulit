@@ -242,6 +242,14 @@
   50% { opacity: 1; }
 }
 
+/* Drifting water layers used behind the Analytics line graph. */
+@keyframes water-drift {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.water-wave { animation: water-drift 11s linear infinite; }
+.water-wave-slow { animation: water-drift 19s linear infinite; }
+
 /* Respect users who prefer reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   *,

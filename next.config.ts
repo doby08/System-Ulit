@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  serverExternalPackages: ["@prisma/client", "bcryptjs", "qrcode"],
+  serverExternalPackages: ["@prisma/client", "bcryptjs", "qrcode", "jspdf", "exceljs", "docx"],
   eslint: {
     // Linting is run explicitly via `npm run lint`; keep builds fast & deterministic.
     ignoreDuringBuilds: true,

@@ -33,6 +33,18 @@ export type GenerateOptions = {
 };
 
 const OPEN_TYPES = new Set(["LONG_TEXT", "SHORT_TEXT"]);
+
+/** Native open-ended openers used when a closed frame becomes a conversational prompt. */
+const CONVERSATIONAL_OPENERS: Record<string, string> = {
+  tl: "Ikuwento mo sa sarili mong pananalita: ",
+  ceb: "Isaysay kanako sa imong kaugalingong pulong: ",
+  hil: "Isaysay sa akon sa imo kaugalingon nga pulong: ",
+  ilo: "Isalaysay mo kaniak iti bukodmo a panunot: ",
+};
+
+function conversationalOpener(language: string) {
+  return CONVERSATIONAL_OPENERS[language] ?? "Please elaborate: ";
+}
 const CLOSED_TYPES = new Set([
   "LIKERT_5",
   "LIKERT_7",
@@ -128,9 +140,15 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
     let type = frame.type;
 
     // Unstructured interviews lean conversational: most closed frames become open prompts.
+    // For non-English languages the closed question is translated FIRST and then wrapped in a
+    // native conversational opener, so the open prompt stays monolingual instead of Taglish.
     if (interviewMethod === "UNSTRUCTURED" && CLOSED_TYPES.has(type)) {
       if (questions.length < Math.ceil(count * 0.75)) {
-        text = toConversationalPrompt(text, ctx);
+        if (language && language !== "en") {
+          text = `${conversationalOpener(language)}${phraseTranslate(text, language).text}`;
+        } else {
+          text = toConversationalPrompt(text, ctx);
+        }
         type = "LONG_TEXT";
       }
     }

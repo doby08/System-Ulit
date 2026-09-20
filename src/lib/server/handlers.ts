@@ -3,7 +3,7 @@
  * Thin route files under src/app/api delegate to these typed handlers so that
  * auth, validation and error handling stay uniform across every endpoint.
  */
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma, isPostgres } from '@/lib/prisma';
 import {
@@ -14,6 +14,7 @@ import {
   getUserAgent,
   ok,
   readJson,
+  notFound,
   requireAdminApi,
 } from '@/lib/server/api';
 import { logAudit, toSessionUser } from '@/lib/server/auth';
@@ -63,6 +64,7 @@ import {
   getOverviewMetrics,
   getQuestionAnalyticsDetail,
   getSurveyAnalytics,
+  buildResponseWhere,
 } from '@/lib/server/analytics';
 import {
   buildReportContent,
@@ -107,6 +109,7 @@ import {
   reportCreateSchema,
 } from '@/lib/server/validation-public';
 import { MAX_QUESTIONS_PER_SURVEY } from '@/lib/constants';
+import { buildReportFile, isReportFormat, type ReportFormat } from '@/lib/server/report-export';
 import { stringifyTags } from '@/lib/utils';
 import type { QuestionRecord } from '@/lib/server/questions';
 import type { ResponseSubmitPayload, SubmitResult, SyncBatchResult } from '@/lib/types';
@@ -1293,31 +1296,79 @@ export async function GET_UNSTRUCTURED(request: NextRequest) {
     to: url.searchParams.get("to") ?? undefined,
   });
 
+  // Every active filter (survey, group, method, mode, language, date range) is applied
+  // through the shared analytics WHERE builder so insights always match the dashboard.
+  const responseWhere = buildResponseWhere(filters);
+
   const answers = await prisma.answer.findMany({
     where: {
-      ...(filters.surveyId ? { surveyId: filters.surveyId } : {}),
       valueText: { not: null },
+      ...(filters.surveyId ? { surveyId: filters.surveyId } : {}),
+      response: responseWhere,
     },
-    select: { valueText: true },
-    take: 1500,
+    select: {
+      valueText: true,
+      questionId: true,
+      aiSentiment: true,
+      question: { select: { code: true, text: true, type: true, category: true } },
+    },
+    take: 2500,
   });
-  const texts = answers.map((a) => a.valueText ?? "").filter((t) => t.trim().length > 2);
+
+  const usable = answers.filter((answer) => (answer.valueText ?? "").trim().length > 2);
+  const texts = usable.map((answer) => (answer.valueText ?? "").trim());
 
   const survey = filters.surveyId
     ? await prisma.survey.findUnique({
         where: { id: filters.surveyId },
-        select: { topic: true, stakeholder: true, language: true },
+        select: { title: true, topic: true, stakeholder: true, language: true },
       })
     : null;
+
+  // Which questions actually produced the feedback (drives the coverage panel).
+  const sources = new Map<
+    string,
+    { questionId: string; code: string; text: string; type: string; category: string | null; count: number }
+  >();
+  for (const answer of usable) {
+    const entry = sources.get(answer.questionId) ?? {
+      questionId: answer.questionId,
+      code: answer.question?.code ?? "Q",
+      text: answer.question?.text ?? "Question",
+      type: answer.question?.type ?? "LONG_TEXT",
+      category: answer.question?.category ?? null,
+      count: 0,
+    };
+    entry.count += 1;
+    sources.set(answer.questionId, entry);
+  }
+  const sourceList = [...sources.values()].sort((a, b) => b.count - a.count);
 
   const insights = await analyzeOpenEnded({
     texts,
     topic: survey?.topic ?? "Survey responses",
     stakeholder: survey?.stakeholder,
     language: survey?.language ?? filters.language ?? "en",
+    questions: sourceList.map((entry) => entry.text).slice(0, 20),
   });
 
-  return ok({ ...insights, aiEnhanced: insights.aiEnhanced, count: texts.length });
+  // Sentiment stored per answer at submission time (cross-check shown in the UI).
+  const storedSentiment = { POSITIVE: 0, NEUTRAL: 0, NEGATIVE: 0 };
+  for (const answer of usable) {
+    const key = (answer.aiSentiment ?? "").toUpperCase() as keyof typeof storedSentiment;
+    if (key in storedSentiment) storedSentiment[key] += 1;
+  }
+
+  return ok({
+    ...insights,
+    count: texts.length,
+    surveyTitle: survey?.title ?? null,
+    surveyTopic: survey?.topic ?? null,
+    filters,
+    sources: sourceList.slice(0, 12),
+    storedSentiment,
+    generatedAt: new Date().toISOString(),
+  });
 }
 
 /** GET /api/admin/analytics/facets — filter dropdown options. */
@@ -1975,4 +2026,36 @@ export async function GET_TRANSLATIONS(_request: NextRequest, { params }: Contex
     }),
   ]);
   return ok({ surveyTranslations, questionTranslations });
+}
+
+/** GET /api/admin/reports/[reportId]/download — exports a saved report (PDF/Word/Excel/CSV/JSON). */
+export async function GET_REPORT_DOWNLOAD(request: NextRequest, { params }: ReportContext) {
+  await requireAdminApi();
+  const { reportId } = await params;
+  const url = new URL(request.url);
+  const requested = (url.searchParams.get("format") ?? "pdf").toLowerCase();
+  const format: ReportFormat = isReportFormat(requested) ? requested : "pdf";
+  const inline = url.searchParams.get("disposition") === "inline";
+
+  const record = await prisma.report.findUnique({ where: { id: reportId } });
+  if (!record) throw notFound("That report no longer exists.");
+
+  const content = parseReportContent(record.content);
+  if (!content) {
+    throw new ApiError("This report has no stored content yet. Please regenerate it.", 422, {
+      code: "REPORT_EMPTY",
+    });
+  }
+
+  const { body, fileName, contentType } = await buildReportFile({ ...content, reportId: record.id }, format);
+
+  return new NextResponse(new Uint8Array(body), {
+    status: 200,
+    headers: {
+      "Content-Type": contentType,
+      "Content-Length": String(body.byteLength),
+      "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${fileName}"`,
+      "Cache-Control": "private, no-store",
+    },
+  });
 }
