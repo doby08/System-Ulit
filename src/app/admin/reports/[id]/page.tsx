@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useReportDetail, reportDownloadUrl } from "@/lib/client/hooks";
 import { WaterLineChart } from "@/components/charts/water-line-chart";
 import { formatDate } from "@/lib/utils";
+import { INTERVIEW_METHODS, INTERVIEW_MODES, languageLabel } from "@/lib/constants";
 import {
   ArrowLeft,
   Download,
@@ -14,6 +15,9 @@ import {
   FileSpreadsheet,
   FileText,
   Sparkles,
+  Users,
+  Calendar,
+  Globe,
 } from "lucide-react";
 
 const SENTIMENT_COLOR: Record<string, string> = {
@@ -75,7 +79,59 @@ export default function ReportDetailPage() {
           <Badge variant={report.status === "READY" ? "success" : "warning"}>{report.status}</Badge>
           {report.surveyVersion !== null && <Badge variant="default">v{report.surveyVersion}</Badge>}
         </div>
-      </div>
+            </div>
+
+      {content?.survey && (
+        <Card className="p-5">
+          <p className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+            <Users className="w-4 h-4 text-cyan-300" /> Interview &amp; QR Details
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Badge variant="default">
+                  {INTERVIEW_METHODS.find((m) => m.value === content.survey.interviewMethod)?.label ??
+                    content.survey.interviewMethod}
+                </Badge>
+                <span className="text-xs text-slate-500">Interview Method</span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-300">
+                <Badge variant="outline">
+                  {INTERVIEW_MODES.find((m) => m.value === content.survey.interviewMode)?.label ??
+                    content.survey.interviewMode}
+                </Badge>
+                <span className="text-xs text-slate-500">Interview Mode</span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-300">
+                <Globe className="w-4 h-4 text-slate-500" />
+                <span>{languageLabel(content.survey.language)}</span>
+                <span className="text-xs text-slate-500">Language</span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-slate-300">
+                <Calendar className="w-4 h-4 text-slate-500" />
+                <span>{content.survey.stakeholder}</span>
+                <span className="text-xs text-slate-500">Stakeholder</span>
+              </div>
+              <div className="flex items-center gap-2 text-slate-300">
+                <Badge variant="info">Version {content.survey.version}</Badge>
+                <span className="text-xs text-slate-500">Survey Version</span>
+              </div>
+                            {content.filters.interviewMethod && (
+                <div className="text-xs text-slate-400 mt-1">
+                  Method filter: {INTERVIEW_METHODS.find((m) => m.value === content.filters.interviewMethod)?.label ?? content.filters.interviewMethod}
+                </div>
+              )}
+              {content.filters.interviewMode && (
+                <div className="text-xs text-slate-400">
+                  Mode filter: {INTERVIEW_MODES.find((m) => m.value === content.filters.interviewMode)?.label ?? content.filters.interviewMode}
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
 
       <Card className="p-5">
         <p className="text-sm font-semibold text-white mb-3">Download</p>

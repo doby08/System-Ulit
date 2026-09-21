@@ -1,19 +1,20 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useCallback } from "react";
 import type {
   AnswerPayload,
   PublicQuestion,
   PublicSurveyPayload,
   RespondentPayload,
 } from "@/lib/types";
-import { submitPublicResponse } from "@/lib/client/hooks";
+import { useOfflineSubmit } from "@/lib/client/offline-survey";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { AlertTriangle, CheckCircle2, Loader2, CloudOff, Cloud } from "lucide-react";
 
 /** Builds one AnswerPayload for a question from the current answer state. */
 function buildAnswer(question: PublicQuestion, answer?: AnswerPayload): AnswerPayload | null {
@@ -58,8 +59,16 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
   const [respondent, setRespondent] = useState<Partial<RespondentPayload>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [lastResult, setLastResult] = useState<{ status: string; message: string; clientResponseId?: string } | null>(null);
   const [missing, setMissing] = useState<string[]>([]);
-  const [done, setDone] = useState(false);
+
+  // Get token from URL for offline submission
+  const token = typeof window !== "undefined" ? window.location.pathname.split("/respond/")[1] || "" : "";
+
+  const { submit: offlineSubmit, isSubmitting, lastResult: offResult } = useOfflineSubmit(token, payload, () => {
+    // Pending count update callback
+  });
 
   const enabledDemographics = useMemo(
     () =>
@@ -87,57 +96,55 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitting(true);
     setError(null);
 
-    const unanswered = payload.questions.filter((q) => q.isRequired && !isAnswered(answers[q.id]));
-    if (unanswered.length) {
-      setMissing(unanswered.map((q) => q.id));
-      setError("Please answer all required questions before submitting.");
-      document.getElementById(`q-${unanswered[0].id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
-      return;
-    }
-    for (const field of enabledDemographics) {
-      if (field.required && !(respondent as Record<string, unknown>)[field.key]) {
-        setError(`Please fill in the required field: ${field.label}.`);
-        return;
+    // Check required questions
+    const missingRequired: string[] = [];
+    payload.questions.forEach((q) => {
+      if (q.isRequired && !isAnswered(answers[q.id])) {
+        missingRequired.push(q.id);
       }
-    }
+    });
 
-    const answerPayload = payload.questions
-      .map((question) => buildAnswer(question, answers[question.id]))
-      .filter((a): a is AnswerPayload => Boolean(a));
-    if (!answerPayload.length) {
-      setError("Please answer at least one question.");
+    if (missingRequired.length > 0) {
+      setMissing(missingRequired);
+      setError(`Please answer all required questions (${missingRequired.length} remaining).`);
+      setSubmitting(false);
       return;
     }
 
-    const cleanedRespondent: RespondentPayload = {};
-    for (const [key, value] of Object.entries(respondent)) {
-      if (typeof value === "string" && value.trim()) {
-        cleanedRespondent[key as keyof RespondentPayload] = value.trim();
-      }
-    }
+    // Build answers array
+    const answersArray = payload.questions
+      .map((q) => buildAnswer(q, answers[q.id]))
+      .filter((a): a is AnswerPayload => a !== null);
 
-    setSubmitting(true);
     try {
-      await submitPublicResponse({
-        clientResponseId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
-        token: payload.token,
-        language: payload.language,
-        device: navigator.userAgent.slice(0, 60),
-        networkState: navigator.onLine ? "ONLINE" : "OFFLINE",
-        source: "ONLINE",
-        capturedAt: new Date().toISOString(),
-        durationSec: Math.max(1, Math.round((Date.now() - startedAt.current) / 1000)),
-        status: "COMPLETE",
-        respondent: Object.keys(cleanedRespondent).length ? cleanedRespondent : null,
-        answers: answerPayload,
-      });
-      setDone(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
-      setError(err?.message ?? "Submission failed. Please try again.");
-    } finally {
+      // Use offline submission - handles both online and offline gracefully
+      const result = await offlineSubmit(
+        answersArray.reduce((acc, a) => ({ ...acc, [a.questionId]: a }), {}),
+        respondent as Record<string, unknown>,
+        { sessionCode: `SES-${Date.now().toString(36).toUpperCase().slice(0, 8)}` }
+      );
+
+      setLastResult(result);
+
+      if (result.status === "CREATED" || result.status === "UPDATED") {
+        setSuccess(true);
+        setSubmitting(false);
+      } else if (result.status === "PENDING") {
+        // Offline - saved locally, will sync when online
+        setSuccess(true);
+        setSubmitting(false);
+      } else if (result.status === "DUPLICATE") {
+        setError("This response was already submitted.");
+        setSubmitting(false);
+      } else {
+        setError(result.message || "Submission failed.");
+        setSubmitting(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
       setSubmitting(false);
     }
   };
@@ -147,7 +154,7 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
     setRespondent({});
     setMissing([]);
     setError(null);
-    setDone(false);
+    setSuccess(false);
     startedAt.current = Date.now();
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -233,17 +240,30 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
     return <Input value={answer?.valueText ?? ""} onChange={(e) => setAnswer(question, { valueText: e.target.value })} placeholder="Type your answer..." />;
   };
 
-  if (done) {
+  if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-[#05070F]">
-        <Card className="p-8 max-w-lg w-full text-center space-y-4">
-          <CheckCircle2 className="w-14 h-14 text-emerald-400 mx-auto" />
-          <h1 className="text-xl font-bold text-white">Response submitted</h1>
-          <p className="text-sm text-slate-400">{payload.settings.thankYouMessage}</p>
-          <Button variant="gradient" onClick={resetForm}>
-            <RotateCcw className="w-4 h-4" /> Submit another response
-          </Button>
-        </Card>
+        <div className="max-w-md w-full rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-8 text-center space-y-4">
+          <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 flex items-center justify-center">
+            <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+          </div>
+          <h1 className="text-xl font-bold text-white">Response Submitted</h1>
+          <p className="text-sm text-slate-300">
+            {lastResult?.status === "PENDING"
+              ? "Your response was saved offline and will be submitted when you're back online."
+              : "Thank you for your feedback!"}
+          </p>
+          {lastResult?.clientResponseId && (
+            <p className="text-xs text-slate-500">
+              Response ID: {lastResult.clientResponseId}
+            </p>
+          )}
+          <div className="flex justify-center pt-2">
+            <Button variant="secondary" onClick={() => window.location.href = "/"}>
+              Return to Home
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -271,6 +291,20 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
           <div className="flex items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 p-3 text-sm text-rose-200">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {lastResult && lastResult.status === "PENDING" && (
+          <div className="flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            <CloudOff className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{lastResult.message}</span>
+          </div>
+        )}
+
+        {lastResult && (lastResult.status === "CREATED" || lastResult.status === "UPDATED") && (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+            <Cloud className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>{lastResult.message}</span>
           </div>
         )}
 
@@ -311,8 +345,8 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
           ))}
 
           <div className="flex justify-center pt-2 pb-10">
-            <Button type="submit" variant="gradient" size="lg" disabled={submitting} className="min-w-[14rem]">
-              {submitting ? (
+            <Button type="submit" variant="gradient" size="lg" disabled={submitting || isSubmitting} className="min-w-[14rem]">
+              {submitting || isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
                 </>

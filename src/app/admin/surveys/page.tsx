@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSurveys, deleteSurvey, publishSurvey, duplicateSurvey } from "@/lib/client/hooks";
+import { useSurveys, deleteSurvey, publishSurvey, duplicateSurvey, restoreSurvey } from "@/lib/client/hooks";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,13 +27,23 @@ export default function SurveysPage() {
   }, []);
 
   const handleDelete = async (id: string, title: string) => {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
+    if (!confirm(`Move "${title}" to trash? You can restore it later.`)) return;
     try {
       await deleteSurvey(id);
-      toast({ title: "Deleted", type: "success" });
+      toast({ title: "Moved to trash", message: "Survey moved to trash bin. You can restore it anytime.", type: "success" });
       refetch();
     } catch (e: any) {
-      toast({ title: "Delete failed", message: e?.message, type: "error" });
+      toast({ title: "Action failed", message: e?.message, type: "error" });
+    }
+  };
+
+  const handleRestore = async (id: string) => {
+    try {
+      await restoreSurvey(id);
+      toast({ title: "Restored", message: "Survey restored successfully.", type: "success" });
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Restore failed", message: e?.message, type: "error" });
     }
   };
 
@@ -124,14 +134,14 @@ export default function SurveysPage() {
                       {s.questionCount} questions • {s.responseCount} responses • v{s.version}
                     </p>
                   </div>
-                  <DropdownMenu
+                                  <DropdownMenu
                     trigger={<MoreVertical className="w-4 h-4 text-[var(--text-muted)] cursor-pointer" />}
                     items={[
                       { label: "Manage", icon: <Edit className="w-4 h-4" />, onClick: () => router.push(`/admin/surveys/${s.id}`) },
                       { label: "Analytics", icon: <BarChart3 className="w-4 h-4" />, onClick: () => router.push(`/admin/analytics?surveyId=${s.id}`) },
                       { label: "Duplicate", icon: <Copy className="w-4 h-4" />, onClick: () => handleDuplicate(s.id) },
                       {
-                        label: "Delete",
+                        label: "Move to Trash",
                         icon: <Trash2 className="w-4 h-4" />,
                         variant: "danger" as const,
                         onClick: () => handleDelete(s.id, s.title),

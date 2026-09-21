@@ -99,11 +99,13 @@ export default function AnalyticsPage() {
             placeholder="Language"
           />
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
           <Input type="date" value={draft.from ?? ""} onChange={(e) => setDraft({ ...draft, from: e.target.value })} />
           <Input type="date" value={draft.to ?? ""} onChange={(e) => setDraft({ ...draft, to: e.target.value })} />
           <Button variant="gradient" onClick={applyFilters}>Apply Filters</Button>
-          <Button variant="ghost" onClick={clearFilters}>Clear</Button>
+        </div>
+        <div className="mt-2">
+          <Button variant="ghost" size="sm" onClick={clearFilters}>Clear All</Button>
         </div>
       </Card>
 

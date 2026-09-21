@@ -161,6 +161,10 @@ export async function deleteSurvey(id: string): Promise<void> {
   await api.delete(`/api/admin/surveys/${id}`);
 }
 
+export async function restoreSurvey(id: string): Promise<void> {
+  await api.post(`/api/admin/surveys/${id}/restore`, {});
+}
+
 export async function duplicateSurvey(id: string): Promise<{ id: string }> {
   return api.post(`/api/admin/surveys/${id}/duplicate`, {});
 }

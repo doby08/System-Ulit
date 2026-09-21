@@ -610,18 +610,63 @@ export async function deleteSurvey(
       { code: "SURVEY_HAS_RESPONSES", details: { responseCount } },
     );
   }
-  await prisma.survey.delete({ where: { id: surveyId } });
+  // Soft delete: set deletedAt instead of hard delete
+  await prisma.survey.update({
+    where: { id: surveyId },
+    data: { deletedAt: new Date() },
+  });
   await logAudit({
     action: "SURVEY_DELETED",
     entity: "Survey",
     entityId: surveyId,
     actorId: userId,
     severity: "WARNING",
-    details: { title: survey.title, responses: responseCount, forced: Boolean(options.force) },
+    details: { title: survey.title, responses: responseCount, forced: Boolean(options.force), softDelete: true },
     ip: options.meta?.ip,
     userAgent: options.meta?.userAgent,
   });
-  return { deleted: true };
+  return { deleted: true, softDelete: true };
+}
+
+export async function restoreSurvey(userId: string, surveyId: string, meta: ActorMeta = {}) {
+  const survey = await getSurveyOr404(surveyId);
+  if (!survey.deletedAt) {
+    throw new ApiError("Survey is not in trash bin.", 400, { code: "NOT_IN_TRASH" });
+  }
+  await prisma.survey.update({
+    where: { id: surveyId },
+    data: { deletedAt: null },
+  });
+  await logAudit({
+    action: "SURVEY_RESTORED",
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    severity: "INFO",
+    details: { title: survey.title },
+    ip: meta?.ip,
+    userAgent: meta?.userAgent,
+  });
+  return { restored: true };
+}
+
+export async function permanentDeleteSurvey(userId: string, surveyId: string, meta: ActorMeta = {}) {
+  const survey = await getSurveyOr404(surveyId);
+  if (!survey.deletedAt) {
+    throw new ApiError("Survey must be in trash bin before permanent deletion.", 400, { code: "NOT_IN_TRASH" });
+  }
+  await prisma.survey.delete({ where: { id: surveyId } });
+  await logAudit({
+    action: "SURVEY_PERMANENTLY_DELETED",
+    entity: "Survey",
+    entityId: surveyId,
+    actorId: userId,
+    severity: "CRITICAL",
+    details: { title: survey.title },
+    ip: meta?.ip,
+    userAgent: meta?.userAgent,
+  });
+  return { deleted: true, permanent: true };
 }
 
 export async function duplicateSurvey(userId: string, surveyId: string, meta: ActorMeta = {}) {

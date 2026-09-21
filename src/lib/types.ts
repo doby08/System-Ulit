@@ -174,7 +174,7 @@ export type ResponseSubmitPayload = {
 export type SubmitResult = {
   clientResponseId: string;
   serverResponseId: string;
-  status: "CREATED" | "DUPLICATE" | "CONFLICT" | "UPDATED";
+  status: "CREATED" | "DUPLICATE" | "CONFLICT" | "UPDATED" | "PENDING" | "FAILED";
   answersSaved: number;
   message: string;
   conflictOf?: string | null;

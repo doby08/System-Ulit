@@ -55,6 +55,7 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/uuid": "^10.0.0",
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.1.3"
   }

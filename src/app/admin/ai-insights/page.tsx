@@ -83,6 +83,27 @@ export default function AiInsightsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load surveys for the dropdown when component mounts
+  useEffect(() => {
+    if (!surveys.length) {
+      fetch("/api/admin/analytics/facets", { credentials: "include" })
+        .then((r) => r.json())
+        .then((facets) => {
+          if (facets?.ok && facets.data?.surveys) {
+            setSurveys(
+              facets.data.surveys.map((s: { id: string; title: string }) => ({
+                id: s.id,
+                title: s.title,
+              })),
+            );
+          }
+        })
+        .catch(() => {
+          // Silently fail - surveys list is not critical
+        });
+    }
+  }, []);
+
 
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-[1100px] mx-auto animate-in-fade">

@@ -46,6 +46,7 @@ import {
   duplicateSurvey,
   createSurvey,
   deleteSurvey,
+  restoreSurvey,
   getSurveyOr404,
   publishSurvey,
   reorderQuestions,
@@ -276,9 +277,19 @@ export async function DELETE_SURVEY(request: NextRequest, { params }: Context) {
   const user = await requireAdminApi();
   const { id } = await params;
   const force = new URL(request.url).searchParams.get("force") === "true";
-  const result = await deleteSurvey(user.id, id, {
+    const result = await deleteSurvey(user.id, id, {
     force,
     meta: { ip: getIp(request), userAgent: getUserAgent(request) },
+  });
+  return ok(result);
+}
+
+/** POST /api/admin/surveys/[id]/restore — restores a soft-deleted survey. */
+export async function POST_RESTORE_SURVEY(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const result = await restoreSurvey(user.id, id, {
+    ip: getIp(request), userAgent: getUserAgent(request),
   });
   return ok(result);
 }
