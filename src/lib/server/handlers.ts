@@ -47,6 +47,7 @@ import {
   createSurvey,
   deleteSurvey,
   restoreSurvey,
+  permanentDeleteSurvey,
   getSurveyOr404,
   publishSurvey,
   reorderQuestions,
@@ -160,9 +161,12 @@ export async function GET_LIST(request: NextRequest) {
   const status = url.searchParams.get("status") ?? undefined;
   const method = url.searchParams.get("method") ?? undefined;
   const mode = url.searchParams.get("mode") ?? undefined;
+  const view = url.searchParams.get("view") ?? undefined;
+  const showTrash = view === "trash" || url.searchParams.get("trash") === "true";
 
   const where = {
-    ...(status ? { status } : {}),
+    ...(showTrash ? { deletedAt: { not: null } } : { deletedAt: null }),
+    ...(status && status !== "TRASH" ? { status } : {}),
     ...(method ? { interviewMethod: method } : {}),
     ...(mode ? { interviewMode: mode } : {}),
     ...(search
@@ -179,8 +183,9 @@ export async function GET_LIST(request: NextRequest) {
       : {}),
   };
 
-  const [total, surveys] = await Promise.all([
+  const [total, trashCount, surveys] = await Promise.all([
     prisma.survey.count({ where }),
+    showTrash ? 0 : prisma.survey.count({ where: { deletedAt: { not: null } } }),
     prisma.survey.findMany({
       where,
       orderBy: { updatedAt: "desc" },
@@ -195,7 +200,7 @@ export async function GET_LIST(request: NextRequest) {
     }),
   ]);
 
-  return ok({ items: surveys.map(mapSurveySummary), total, page, pageSize });
+  return ok({ items: surveys.map(mapSurveySummary), total, page, pageSize, trashCount });
 }
 
 /** POST /api/admin/surveys — create a draft survey (optionally publish). */
@@ -289,6 +294,16 @@ export async function POST_RESTORE_SURVEY(request: NextRequest, { params }: Cont
   const user = await requireAdminApi();
   const { id } = await params;
   const result = await restoreSurvey(user.id, id, {
+    ip: getIp(request), userAgent: getUserAgent(request),
+  });
+  return ok(result);
+}
+
+/** DELETE /api/admin/surveys/[id]/permanent — permanently removes a trashed survey. */
+export async function DELETE_SURVEY_PERMANENT(request: NextRequest, { params }: Context) {
+  const user = await requireAdminApi();
+  const { id } = await params;
+  const result = await permanentDeleteSurvey(user.id, id, {
     ip: getIp(request), userAgent: getUserAgent(request),
   });
   return ok(result);
@@ -1119,7 +1134,7 @@ export async function GET_QR(request: NextRequest) {
     orderBy: { createdAt: "desc" },
     take: 200,
     include: {
-      survey: { select: { id: true, title: true, topic: true, status: true } },
+      survey: { select: { id: true, title: true, topic: true, status: true, stakeholder: true, interviewMethod: true, interviewMode: true, language: true } },
       version: { select: { version: true } },
     },
   });
@@ -1165,7 +1180,7 @@ async function fullQr(id: string) {
   const token = await prisma.qRToken.findUnique({
     where: { id },
     include: {
-      survey: { select: { id: true, title: true, topic: true, status: true } },
+      survey: { select: { id: true, title: true, topic: true, status: true, stakeholder: true, interviewMethod: true, interviewMode: true, language: true } },
       version: { select: { version: true } },
     },
   });
@@ -1180,7 +1195,7 @@ export async function GET_QR_DETAIL(_request: NextRequest, { params }: QrContext
   const token = await prisma.qRToken.findUnique({
     where: { id: qrId },
     include: {
-      survey: { select: { id: true, title: true, topic: true, status: true } },
+      survey: { select: { id: true, title: true, topic: true, status: true, stakeholder: true, interviewMethod: true, interviewMode: true, language: true } },
       version: { select: { version: true } },
     },
   });
@@ -1432,12 +1447,26 @@ export async function GET_REPORTS(request: NextRequest) {
       skip: (page - 1) * pageSize,
       take: pageSize,
       include: {
-        survey: { select: { id: true, title: true, topic: true } },
+        survey: { select: { id: true, title: true, topic: true, stakeholder: true, interviewMethod: true, interviewMode: true } },
         createdBy: { select: { id: true, fullName: true } },
       },
     }),
   ]);
-  return ok({ items: items.map(mapReportRecord), total, page, pageSize });
+  // Attach live response counts per survey (cheap: group by surveyId for listed surveys).
+  const responseCounts = items.length
+    ? await prisma.response.groupBy({
+        by: ["surveyId"],
+        where: { surveyId: { in: items.map((r) => r.surveyId) } },
+        _count: { _all: true },
+      })
+    : [];
+  const countBySurvey = new Map(responseCounts.map((c) => [c.surveyId, c._count._all]));
+  return ok({
+    items: items.map((r) => mapReportRecord({ ...r, _count: { responses: countBySurvey.get(r.surveyId) ?? 0 } })),
+    total,
+    page,
+    pageSize,
+  });
 }
 
 /** POST /api/admin/reports — generate + persist a new report. */
@@ -1473,7 +1502,7 @@ export async function GET_REPORT(_request: NextRequest, { params }: ReportContex
   const record = await prisma.report.findUnique({
     where: { id: reportId },
     include: {
-      survey: { select: { id: true, title: true, topic: true } },
+      survey: { select: { id: true, title: true, topic: true, stakeholder: true, interviewMethod: true, interviewMode: true } },
       createdBy: { select: { id: true, fullName: true } },
     },
   });

@@ -196,11 +196,11 @@ export function mapQrTokenRecord(
     expiresAt: Date | null;
     lastScanAt: Date | null;
     createdAt: Date;
-    survey: { id: string; title: string; topic: string; status: string };
+    survey: { id: string; title: string; topic: string; status: string; stakeholder?: string | null; interviewMethod?: string | null; interviewMode?: string | null; language?: string | null };
     version?: { version: number } | null;
   },
   options: { includeImage?: boolean; dataUrl?: string; svg?: string } = {},
-): QRCodeSummary & { surveyStatus: string; dataUrl?: string; svg?: string } {
+): QRCodeSummary & { surveyStatus: string; dataUrl?: string; svg?: string; surveyStakeholder?: string | null; interviewMethod?: string | null; interviewMode?: string | null; surveyLanguage?: string | null } {
   return {
     id: record.id,
     token: record.token,
@@ -218,6 +218,10 @@ export function mapQrTokenRecord(
     publicUrl: publicSurveyUrl(record.token),
     version: record.version?.version ?? null,
     surveyStatus: record.survey.status,
+    surveyStakeholder: record.survey.stakeholder ?? null,
+    interviewMethod: record.survey.interviewMethod ?? null,
+    interviewMode: record.survey.interviewMode ?? null,
+    surveyLanguage: record.survey.language ?? null,
     ...(options.includeImage ? { dataUrl: options.dataUrl, svg: options.svg } : {}),
   };
 }
@@ -237,14 +241,18 @@ export function mapReportRecord(record: {
   generatedAt: Date;
   createdAt: Date;
   updatedAt: Date;
-  survey?: { id: string; title: string; topic: string } | null;
+  survey?: { id: string; title: string; topic: string; stakeholder?: string | null; interviewMethod?: string | null; interviewMode?: string | null } | null;
   createdBy?: { id: string; fullName: string } | null;
+  _count?: { responses?: number };
 }) {
   return {
     id: record.id,
     surveyId: record.surveyId,
     surveyTitle: record.survey?.title ?? "Deleted survey",
     surveyTopic: record.survey?.topic ?? null,
+    surveyStakeholder: record.survey?.stakeholder ?? null,
+    surveyInterviewMethod: record.survey?.interviewMethod ?? null,
+    surveyInterviewMode: record.survey?.interviewMode ?? null,
     surveyVersion: record.surveyVersion,
     reportType: record.reportType,
     reportTypeLabel: reportTypeMeta(record.reportType).label,
@@ -252,6 +260,7 @@ export function mapReportRecord(record: {
     status: record.status,
     filters: record.filters,
     summary: record.summary,
+    responseCount: record._count?.responses ?? null,
     createdById: record.createdById,
     createdByName: record.createdBy?.fullName ?? null,
     generatedAt: iso(record.generatedAt),

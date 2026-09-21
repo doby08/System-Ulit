@@ -22,6 +22,7 @@ import {
 import { getErrorMessage } from "@/lib/client/api";
 import { REPORT_TYPES } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
+import { INTERVIEW_METHODS, INTERVIEW_MODES } from "@/lib/constants";
 import {
   AlertCircle,
   Download,
@@ -255,9 +256,35 @@ function ReportCard({
 
       {report.summary && <p className="mt-3 text-xs leading-5 text-slate-400 line-clamp-3">{report.summary}</p>}
 
+      {/* Survey context: method / mode / stakeholder + live response count */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {report.surveyInterviewMethod && (
+          <Badge variant="default">
+            {INTERVIEW_METHODS.find((m) => m.value === report.surveyInterviewMethod)?.short ?? report.surveyInterviewMethod}
+          </Badge>
+        )}
+        {report.surveyInterviewMode && (
+          <Badge variant="outline">
+            {INTERVIEW_MODES.find((m) => m.value === report.surveyInterviewMode)?.label ?? report.surveyInterviewMode}
+          </Badge>
+        )}
+        {typeof report.responseCount === "number" && (
+          <Badge variant="info">{report.responseCount} responses</Badge>
+        )}
+      </div>
+      {report.surveyStakeholder && (
+        <p className="mt-1.5 text-[11px] text-slate-500 truncate" title={report.surveyStakeholder}>
+          {report.surveyStakeholder}
+        </p>
+      )}
+
       <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
         <span>{formatDate(report.generatedAt)}</span>
-        <span className="ml-2 truncate">{report.createdByName ?? "System"}</span>
+        <span className="ml-2 truncate" title={report.createdByName ?? undefined}>
+          {typeof report.responseCount === "number"
+            ? `${report.responseCount} respondent${report.responseCount === 1 ? "" : "s"}`
+            : (report.createdByName ?? "System")}
+        </span>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-[var(--border-subtle)] pt-3">

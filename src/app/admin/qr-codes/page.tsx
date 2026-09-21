@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { QrThumb } from "@/components/qr-thumb";
 import { QrCode, Download, Copy, Share2, Pause, Play, RefreshCw, Trash2, Plus, X } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
+import { INTERVIEW_METHODS, INTERVIEW_MODES, languageLabel } from "@/lib/constants";
 
 export default function QRCodesPage() {
   const { toast } = useToast();
@@ -236,6 +237,28 @@ export default function QRCodesPage() {
                   <p className="text-[var(--text-muted)]">Completed</p>
                 </div>
               </div>
+
+              {/* Survey context: method / mode / stakeholder / language */}
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {token.interviewMethod && (
+                  <Badge variant="default" title="Interview method">
+                    {INTERVIEW_METHODS.find((m) => m.value === token.interviewMethod)?.short ?? token.interviewMethod}
+                  </Badge>
+                )}
+                {token.interviewMode && (
+                  <Badge variant="outline" title="Interview mode">
+                    {INTERVIEW_MODES.find((m) => m.value === token.interviewMode)?.label ?? token.interviewMode}
+                  </Badge>
+                )}
+                {token.surveyLanguage && (
+                  <Badge variant="outline" title="Language">{languageLabel(token.surveyLanguage)}</Badge>
+                )}
+              </div>
+              {token.surveyStakeholder && (
+                <p className="mt-1.5 text-[11px] text-[var(--text-muted)] truncate" title={token.surveyStakeholder}>
+                  {token.surveyStakeholder}
+                </p>
+              )}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button size="sm" variant="ghost" title="Open the respondent page" onClick={() => window.open(token.publicUrl, "_blank")}>

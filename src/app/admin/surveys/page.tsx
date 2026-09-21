@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSurveys, deleteSurvey, publishSurvey, duplicateSurvey, restoreSurvey } from "@/lib/client/hooks";
+import { useSurveys, deleteSurvey, publishSurvey, duplicateSurvey, restoreSurvey, permanentDeleteSurvey } from "@/lib/client/hooks";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DropdownMenu } from "@/components/ui/dropdown-menu";
-import { Plus, Search, MoreVertical, Edit, Trash2, Copy, BarChart3 } from "lucide-react";
+import { Plus, Search, MoreVertical, Edit, Trash2, Copy, BarChart3, RotateCcw, ArchiveRestore, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useToast } from "@/components/ui/toast";
 import { surveyStatusMeta, INTERVIEW_METHODS, INTERVIEW_MODES } from "@/lib/constants";
@@ -17,7 +17,8 @@ import { surveyStatusMeta, INTERVIEW_METHODS, INTERVIEW_MODES } from "@/lib/cons
 export default function SurveysPage() {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const { data: surveys, loading, error, refetch } = useSurveys({ search });
+  const [view, setView] = useState<"active" | "trash">("active");
+  const { data: surveys, loading, error, trashCount, refetch } = useSurveys(view === "trash" ? { search, view: "trash" } : { search });
   const { toast } = useToast();
 
   useEffect(() => {
@@ -44,6 +45,17 @@ export default function SurveysPage() {
       refetch();
     } catch (e: any) {
       toast({ title: "Restore failed", message: e?.message, type: "error" });
+    }
+  };
+
+  const handlePermanentDelete = async (id: string, title: string) => {
+    if (!confirm(`Permanently delete "${title}"? This cannot be undone.`)) return;
+    try {
+      await permanentDeleteSurvey(id);
+      toast({ title: "Permanently deleted", type: "success" });
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Delete failed", message: e?.message, type: "error" });
     }
   };
 
@@ -98,10 +110,27 @@ export default function SurveysPage() {
         </Link>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant={view === "active" ? "gradient" : "secondary"}
+          size="sm"
+          onClick={() => setView("active")}
+        >
+          <ArchiveRestore className="w-4 h-4 mr-1" /> Active
+        </Button>
+        <Button
+          variant={view === "trash" ? "gradient" : "secondary"}
+          size="sm"
+          onClick={() => setView("trash")}
+        >
+          <Trash2 className="w-4 h-4 mr-1" /> Trash Bin{trashCount > 0 ? ` (${trashCount})` : ""}
+        </Button>
+      </div>
+
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
         <Input
-          placeholder="Search surveys..."
+          placeholder={view === "trash" ? "Search trash..." : "Search surveys..."}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10"
@@ -112,7 +141,11 @@ export default function SurveysPage() {
 
       {!surveys?.length ? (
         <div className="text-center py-12">
-          <p className="text-[var(--text-secondary)]">No surveys found. Create your first survey to get started.</p>
+          <p className="text-[var(--text-secondary)]">
+            {view === "trash"
+              ? "Trash bin is empty. Deleted surveys can be restored from here."
+              : "No surveys found. Create your first survey to get started."}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -121,7 +154,7 @@ export default function SurveysPage() {
             const method = INTERVIEW_METHODS.find((m) => m.value === s.interviewMethod);
             const mode = INTERVIEW_MODES.find((m) => m.value === s.interviewMode);
             return (
-              <Card key={s.id} className="p-5">
+              <Card key={s.id} className={`p-5 ${view === "trash" ? "opacity-90 border-dashed" : ""}`}>
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <h3 className="font-semibold text-[var(--text-primary)]">{s.title}</h3>
@@ -134,7 +167,21 @@ export default function SurveysPage() {
                       {s.questionCount} questions • {s.responseCount} responses • v{s.version}
                     </p>
                   </div>
-                                  <DropdownMenu
+                  {view === "trash" ? (
+                    <DropdownMenu
+                      trigger={<MoreVertical className="w-4 h-4 text-[var(--text-muted)] cursor-pointer" />}
+                      items={[
+                        { label: "Restore", icon: <RotateCcw className="w-4 h-4" />, onClick: () => handleRestore(s.id) },
+                        {
+                          label: "Delete Forever",
+                          icon: <XCircle className="w-4 h-4" />,
+                          variant: "danger" as const,
+                          onClick: () => handlePermanentDelete(s.id, s.title),
+                        },
+                      ]}
+                    />
+                  ) : (
+                  <DropdownMenu
                     trigger={<MoreVertical className="w-4 h-4 text-[var(--text-muted)] cursor-pointer" />}
                     items={[
                       { label: "Manage", icon: <Edit className="w-4 h-4" />, onClick: () => router.push(`/admin/surveys/${s.id}`) },
@@ -148,15 +195,22 @@ export default function SurveysPage() {
                       },
                     ]}
                   />
+                  )}
                 </div>
                 <div className="mt-3 flex items-center justify-between">
                   <Badge variant={s.status === "PUBLISHED" ? "success" : s.status === "DRAFT" ? "warning" : "default"}>
                     {status.label}
                   </Badge>
-                  {s.status !== "PUBLISHED" && (
-                    <Button size="sm" variant="secondary" onClick={() => handlePublish(s.id)}>
-                      Publish
+                  {view === "trash" ? (
+                    <Button size="sm" variant="secondary" onClick={() => handleRestore(s.id)}>
+                      <RotateCcw className="w-3 h-3 mr-1" /> Restore
                     </Button>
+                  ) : (
+                    s.status !== "PUBLISHED" && (
+                      <Button size="sm" variant="secondary" onClick={() => handlePublish(s.id)}>
+                        Publish
+                      </Button>
+                    )
                   )}
                 </div>
               </Card>

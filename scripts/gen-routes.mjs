@@ -11,6 +11,8 @@ const ROUTES = [
   ["api/admin/surveys", { GET: "GET_LIST", POST: "POST_CREATE" }, false],
   ["api/admin/surveys/[id]", { GET: "GET_DETAIL", PATCH: "PATCH_UPDATE", DELETE: "DELETE_SURVEY" }, true],
   ["api/admin/surveys/[id]/publish", { POST: "POST_PUBLISH" }, true],
+  ["api/admin/surveys/[id]/restore", { POST: "POST_RESTORE_SURVEY" }, true],
+  ["api/admin/surveys/[id]/permanent", { DELETE: "DELETE_SURVEY_PERMANENT" }, true],
   ["api/admin/surveys/[id]/status", { POST: "POST_STATUS" }, true],
   ["api/admin/surveys/[id]/duplicate", { POST: "POST_DUPLICATE" }, true],
   ["api/admin/surveys/[id]/questions", { GET: "GET_QUESTIONS", POST: "POST_QUESTION" }, true],

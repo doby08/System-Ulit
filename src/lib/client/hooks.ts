@@ -109,17 +109,19 @@ export function useSurveys(params?: Record<string, string>) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
+  const [trashCount, setTrashCount] = useState(0);
 
   const fetch = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const qs = new URLSearchParams(params).toString();
-      const data = await api.get<{ items: SurveyListRecord[]; total: number; page: number; pageSize: number }>(
+      const data = await api.get<{ items: SurveyListRecord[]; total: number; page: number; pageSize: number; trashCount?: number }>(
         `/api/admin/surveys${qs ? `?${qs}` : ""}`,
       );
       setData(data.items);
       setTotal(data.total);
+      setTrashCount(data.trashCount ?? 0);
     } catch (e) {
       setError(getErrorMessage(e));
     } finally {
@@ -131,7 +133,7 @@ export function useSurveys(params?: Record<string, string>) {
     fetch();
   }, [fetch]);
 
-  return { data, loading, error, total, refetch: fetch };
+  return { data, loading, error, total, trashCount, refetch: fetch };
 }
 
 export async function createSurvey(payload: {
@@ -163,6 +165,10 @@ export async function deleteSurvey(id: string): Promise<void> {
 
 export async function restoreSurvey(id: string): Promise<void> {
   await api.post(`/api/admin/surveys/${id}/restore`, {});
+}
+
+export async function permanentDeleteSurvey(id: string): Promise<void> {
+  await api.delete(`/api/admin/surveys/${id}/permanent`);
 }
 
 export async function duplicateSurvey(id: string): Promise<{ id: string }> {
@@ -414,12 +420,16 @@ export interface ReportRecord {
   surveyId: string;
   surveyTitle: string;
   surveyTopic: string | null;
+  surveyStakeholder?: string | null;
+  surveyInterviewMethod?: string | null;
+  surveyInterviewMode?: string | null;
   surveyVersion: number | null;
   reportType: string;
   reportTypeLabel: string;
   title: string;
   status: string;
   summary: string | null;
+  responseCount?: number | null;
   createdByName: string | null;
   generatedAt: string;
   createdAt: string;
@@ -563,6 +573,10 @@ export interface QRCodeSummary {
   dataUrl?: string;
   status: string;
   surveyStatus?: string;
+  surveyStakeholder?: string | null;
+  interviewMethod?: string | null;
+  interviewMode?: string | null;
+  surveyLanguage?: string | null;
   version?: number | null;
   scans: number;
   responses: number;
