@@ -43,6 +43,22 @@ export function LoginForm() {
     try {
       const result = await login(username.trim(), password, remember);
       if ("user" in result) {
+        // The session cookie must really be stored by the browser, otherwise the middleware
+        // bounces us straight back to the login page and sign-in looks broken. Verifying it
+        // turns that silent loop into an actionable message.
+        const sessionResponse = await fetch("/api/auth/session", {
+          credentials: "include",
+          cache: "no-store",
+        });
+        const session = sessionResponse.ok
+          ? ((await sessionResponse.json()) as { data?: { user?: unknown } })
+          : null;
+        if (!session?.data?.user) {
+          setError(
+            "Signed in, but the browser did not save the session cookie. Open the system over HTTPS (or through http://localhost) \u2014 Secure cookies are dropped on plain-HTTP addresses such as a LAN IP.",
+          );
+          return;
+        }
         const next = searchParams.get("next") || "/admin";
         router.replace(next);
       } else {

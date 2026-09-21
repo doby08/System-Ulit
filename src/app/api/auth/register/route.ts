@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { hashPassword, validatePasswordStrength } from "@/lib/server/auth";
+import { findUserByIdentifier, hashPassword, validatePasswordStrength } from "@/lib/server/auth";
 import { ApiError, fail, ok, readJson } from "@/lib/server/api";
 import { registerSchema } from "@/lib/server/validation";
 
@@ -22,13 +22,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const orConditions: { username?: { equals: string }; email?: { equals: string } }[] = [
-      { username: { equals: username } },
-    ];
-    if (email) orConditions.push({ email: { equals: email } });
-    const existing = await prisma.user.findFirst({
-      where: { OR: orConditions },
-    });
+    // Case-insensitive conflict detection: "Admin" and "admin" must never coexist,
+    // because two accounts that differ only by capitalisation break administrator sign-in.
+    const usernameConflict = await findUserByIdentifier(username);
+    const emailConflict = email ? await findUserByIdentifier(email) : null;
+    const existing = usernameConflict ?? emailConflict;
     if (existing) {
       throw new ApiError("Username or email is already in use.", 409, { code: "CONFLICT" });
     }

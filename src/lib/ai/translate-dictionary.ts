@@ -29,63 +29,63 @@ export const PHRASE_RULES: Record<string, PhraseRule[]> = {
     /* ---- Satisfaction ---- */
     { pattern: /^How satisfied are you with (.+?)\?$/i, replace: (_m, s) => `Gaano ka nasisiyahan sa ${tagalogNoun(s)}?` },
     { pattern: /^Overall, how would you rate the quality of (.+?)\?$/i, replace: (_m, s) => `Sa kabuuan, paano mo susuriin ang kalidad ng ${tagalogNoun(s)}?` },
-    { pattern: /^Overall, I am satisfied with the quality of (.+?)\.$/i, replace: (_m, s) => `Sa kabuuan, nasisiyahan ako sa kalidad ng ${tagalogNoun(s)}.` },
-    { pattern: /^The (.+?) consistently meet my needs and expectations\.$/i, replace: (_m, s) => `Tuloy-tuloy na natutugunan ng ${tagalogNoun(s)} ang aking mga pangangailangan at inaasahan.` },
-    { pattern: /^The (.+?) provide good value for the time and effort I invest\.$/i, replace: (_m, s) => `Sulit ang ${tagalogNoun(s)} para sa oras at pagod na aking inilalaan.` },
+    { pattern: /^Overall, I am satisfied with the quality of (.+?)\.$/i, replace: (_m, s) => `Sa kabuuan, masaya ako sa galing ng ${tagalogNoun(s)}.` },
+    { pattern: /^The (.+?) consistently meet my needs and expectations\.$/i, replace: (_m, s) => `Palaging natutugunan ng ${tagalogNoun(s)} ang aking mga kailangan at inaasahan.` },
+    { pattern: /^The (.+?) provide good value for the time and effort I invest\.$/i, replace: (_m, s) => `Sulit ang ${tagalogNoun(s)} para sa oras at pagod na ibinibigay ko.` },
     /* ---- Service quality ---- */
-    { pattern: /^How would you rate the reliability of (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang pagiging maaasahan ng ${tagalogNoun(s)}?` },
-    { pattern: /^How would you rate the responsiveness of (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang bilis ng pagtugon ng ${tagalogNoun(s)}?` },
-    { pattern: /^(.+?) are delivered within a reasonable time\.$/i, replace: (_m, s) => `Naihahatid ang ${tagalogNoun(s)} sa loob ng makatwirang panahon.` },
-    { pattern: /^The quality of (.+?) is consistent across every interaction\.$/i, replace: (_m, s) => `Pantay-pantay ang kalidad ng ${tagalogNoun(s)} sa bawat pakikipag-ugnayan.` },
-    { pattern: /^Do (.+?) meet the standards you expect from them\?$/i, replace: (_m, s) => `Natutugunan ba ng ${tagalogNoun(s)} ang mga pamantayang inaasahan mo?` },
+    { pattern: /^How would you rate the reliability of (.+?)\?$/i, replace: (_m, s) => `Gaano kamaaasahan ang ${tagalogNoun(s)}?` },
+    { pattern: /^How would you rate the responsiveness of (.+?)\?$/i, replace: (_m, s) => `Gaano kabilis tumugon ang ${tagalogNoun(s)}?` },
+    { pattern: /^(.+?) are delivered within a reasonable time\.$/i, replace: (_m, s) => `Naibibigay ang ${tagalogNoun(s)} sa tamang oras.` },
+    { pattern: /^The quality of (.+?) is consistent across every interaction\.$/i, replace: (_m, s) => `Pare-pareho ang galing ng ${tagalogNoun(s)} sa bawat pag-uusap.` },
+    { pattern: /^Do (.+?) meet the standards you expect from them\?$/i, replace: (_m, s) => `Natutugunan ba ng ${tagalogNoun(s)} ang inaasahan mo?` },
     /* ---- Accessibility ---- */
-    { pattern: /^How easy is it to access (.+?)\?$/i, replace: (_m, s) => `Gaano kadali ang paggamit o pagkuha ng ${tagalogNoun(s)}?` },
-    { pattern: /^How convenient are the operating hours or availability of (.+?)\?$/i, replace: (_m, s) => `Gaano kaginhawa ang oras ng paglilingkod o pagkakaroon ng ${tagalogNoun(s)}?` },
-    { pattern: /^I can reach (.+?) without difficulty whenever I need them\.$/i, replace: (_m, s) => `Nagagamit ko ang ${tagalogNoun(s)} nang walang kahirapan sa tuwing kailangan ko.` },
+    { pattern: /^How easy is it to access (.+?)\?$/i, replace: (_m, s) => `Gaano kadali gamitin ang ${tagalogNoun(s)}?` },
+    { pattern: /^How convenient are the operating hours or availability of (.+?)\?$/i, replace: (_m, s) => `Gaano kaginhawa ang oras ng ${tagalogNoun(s)}?` },
+    { pattern: /^I can reach (.+?) without difficulty whenever I need them\.$/i, replace: (_m, s) => `Nakukuha ko ang ${tagalogNoun(s)} nang madali kapag kailangan ko.` },
     { pattern: /^Are (.+?) readily available to (.+?)\?$/i, replace: (_m, s, who) => `Madali bang makukuha ng ${tagalogNoun(who)} ang ${tagalogNoun(s)}?` },
-    { pattern: /^How would you rate the accessibility of (.+?) for persons with disabilities\?$/i, replace: (_m, s) => `Paano mo susuriin ang pagiging abot-kamay ng ${tagalogNoun(s)} para sa mga taong may kapansanan?` },
-    { pattern: /^Through which channel do you usually access (.+?)\?$/i, replace: (_m, s) => `Sa anong paraan mo karaniwang ginagamit ang ${tagalogNoun(s)}?` },
+    { pattern: /^How would you rate the accessibility of (.+?) for persons with disabilities\?$/i, replace: (_m, s) => `Gaano kadali gamitin ang ${tagalogNoun(s)} para sa mga taong may kapansanan?` },
+    { pattern: /^Through which channel do you usually access (.+?)\?$/i, replace: (_m, s) => `Saan ka karaniwang gumagamit ng ${tagalogNoun(s)}?` },
     /* ---- Communication ---- */
-    { pattern: /^How clearly is information about (.+?) communicated to (.+?)\?$/i, replace: (_m, s, who) => `Gaano kalinaw ang pagpapahatid ng impormasyon tungkol sa ${tagalogNoun(s)} sa ${tagalogNoun(who)}?` },
-    { pattern: /^How quickly do you receive updates regarding (.+?)\?$/i, replace: (_m, s) => `Gaano kabilis kang tumatanggap ng mga balita tungkol sa ${tagalogNoun(s)}?` },
-    { pattern: /^Which communication channels do you use to learn about (.+?)\?$/i, replace: (_m, s) => `Anong mga paraan ng pakikipag-ugnayan ang ginagamit mo upang malaman ang tungkol sa ${tagalogNoun(s)}?` },
-    { pattern: /^Is the information about (.+?) easy to understand\?$/i, replace: (_m, s) => `Madali bang maunawaan ang impormasyon tungkol sa ${tagalogNoun(s)}?` },
-    { pattern: /^I receive a clear response whenever I raise concerns about (.+?)\.$/i, replace: (_m, s) => `Nakakakuha ako ng malinaw na sagot sa tuwing may itinataas akong alalahanin tungkol sa ${tagalogNoun(s)}.` },
+    { pattern: /^How clearly is information about (.+?) communicated to (.+?)\?$/i, replace: (_m, s, who) => `Gaano kalinaw ang impormasyon tungkol sa ${tagalogNoun(s)} sa ${tagalogNoun(who)}?` },
+    { pattern: /^How quickly do you receive updates regarding (.+?)\?$/i, replace: (_m, s) => `Gaano kabilis mo nalalaman ang balita tungkol sa ${tagalogNoun(s)}?` },
+    { pattern: /^Which communication channels do you use to learn about (.+?)\?$/i, replace: (_m, s) => `Saan mo nalalaman ang tungkol sa ${tagalogNoun(s)}?` },
+    { pattern: /^Is the information about (.+?) easy to understand\?$/i, replace: (_m, s) => `Madali bang intindihin ang impormasyon tungkol sa ${tagalogNoun(s)}?` },
+    { pattern: /^I receive a clear response whenever I raise concerns about (.+?)\.$/i, replace: (_m, s) => `May malinaw akong nakukuhang sagot kapag may tanong ako tungkol sa ${tagalogNoun(s)}.` },
     /* ---- Staff & support ---- */
-    { pattern: /^How would you rate the courtesy and professionalism of the staff handling (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang kagandahang-asal at kahusayan ng mga kawaning humahawak ng ${tagalogNoun(s)}?` },
-    { pattern: /^The staff are knowledgeable when (.+?) ask about (.+?)\.$/i, replace: (_m, who, s) => `May sapat na kaalaman ang mga kawani kapag nagtatanong ang ${tagalogNoun(who)} tungkol sa ${tagalogNoun(s)}.` },
-    { pattern: /^Staff resolve concerns related to (.+?) promptly\.$/i, replace: (_m, s) => `Agad na nilulutas ng mga kawani ang mga alalahanin tungkol sa ${tagalogNoun(s)}.` },
-    { pattern: /^How would you describe your overall experience with the staff supporting (.+?)\?$/i, replace: (_m, s) => `Paano mo ilalarawan ang iyong kabuuang karanasan sa mga kawaning sumusuporta sa ${tagalogNoun(s)}?` },
+    { pattern: /^How would you rate the courtesy and professionalism of the staff handling (.+?)\?$/i, replace: (_m, s) => `Gaano kagaling at kamagalang ang mga kawani ng ${tagalogNoun(s)}?` },
+    { pattern: /^The staff are knowledgeable when (.+?) ask about (.+?)\.$/i, replace: (_m, who, s) => `Maalam ang mga kawani kapag nagtatanong ang ${tagalogNoun(who)} tungkol sa ${tagalogNoun(s)}.` },
+    { pattern: /^Staff resolve concerns related to (.+?) promptly\.$/i, replace: (_m, s) => `Mabilis na inaayos ng mga kawani ang problema sa ${tagalogNoun(s)}.` },
+    { pattern: /^How would you describe your overall experience with the staff supporting (.+?)\?$/i, replace: (_m, s) => `Kumusta ang karanasan mo sa mga kawani ng ${tagalogNoun(s)}?` },
     /* ---- Facilities & digital ---- */
-    { pattern: /^How would you rate the facilities or environment associated with (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang mga pasilidad o kapaligirang kaugnay ng ${tagalogNoun(s)}?` },
-    { pattern: /^How would you rate the digital platforms used for (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang mga digital na platapormang ginagamit para sa ${tagalogNoun(s)}?` },
-    { pattern: /^The digital tools used for (.+?) are easy to use\.$/i, replace: (_m, s) => `Madaling gamitin ang mga digital na kagamitan para sa ${tagalogNoun(s)}.` },
-    { pattern: /^The digital systems supporting (.+?) are available whenever I need them\.$/i, replace: (_m, s) => `Laging magagamit ang mga digital na sistemang sumusuporta sa ${tagalogNoun(s)} sa tuwing kailangan ko.` },
+    { pattern: /^How would you rate the facilities or environment associated with (.+?)\?$/i, replace: (_m, s) => `Kumusta ang mga pasilidad o paligid ng ${tagalogNoun(s)}?` },
+    { pattern: /^How would you rate the digital platforms used for (.+?)\?$/i, replace: (_m, s) => `Paano mo susuriin ang mga platapormang ginagamit para sa ${tagalogNoun(s)}?` },
+    { pattern: /^The digital tools used for (.+?) are easy to use\.$/i, replace: (_m, s) => `Madaling gamitin ang mga kagamitan para sa ${tagalogNoun(s)}.` },
+    { pattern: /^The digital systems supporting (.+?) are available whenever I need them\.$/i, replace: (_m, s) => `Laging magagamit ang mga sistema para sa ${tagalogNoun(s)} tuwing kailangan ko.` },
     /* ---- Process & efficiency ---- */
-    { pattern: /^How efficient is the process of availing (.+?)\?$/i, replace: (_m, s) => `Gaano kabilis at kaayos ang proseso ng pagkuha ng ${tagalogNoun(s)}?` },
+    { pattern: /^How efficient is the process of availing (.+?)\?$/i, replace: (_m, s) => `Maayos at mabilis ba ang proseso ng pagkuha ng ${tagalogNoun(s)}?` },
     { pattern: /^How long do you usually wait before receiving (.+?)\?$/i, replace: (_m, s) => `Gaano katagal ka karaniwang naghihintay bago matanggap ang ${tagalogNoun(s)}?` },
     { pattern: /^The waiting time involved in (.+?) is acceptable\.$/i, replace: (_m, s) => `Katanggap-tanggap ang oras ng paghihintay para sa ${tagalogNoun(s)}.` },
     { pattern: /^How many steps or visits are normally required to complete a transaction involving (.+?)\?$/i, replace: (_m, s) => `Ilan ang karaniwang hakbang o pagbisita na kailangan upang matapos ang isang transaksyong may kinalaman sa ${tagalogNoun(s)}?` },
     { pattern: /^The requirements and procedures for (.+?) are clear and easy to follow\.$/i, replace: (_m, s) => `Malinaw at madaling sundin ang mga kinakailangan at pamamaraan para sa ${tagalogNoun(s)}.` },
     /* ---- Awareness ---- */
-    { pattern: /^How aware are you of the (.+?) available to (.+?)\?$/i, replace: (_m, s, who) => `Gaano ka kaalam sa ${tagalogNoun(s)} na makukuha ng ${tagalogNoun(who)}?` },
+    { pattern: /^How aware are you of the (.+?) available to (.+?)\?$/i, replace: (_m, s, who) => `Gaano kalaki ang alam mo tungkol sa ${tagalogNoun(s)} na makukuha ng ${tagalogNoun(who)}?` },
     { pattern: /^Which aspects of (.+?) are you already aware of\?$/i, replace: (_m, s) => `Anong mga bahagi ng ${tagalogNoun(s)} ang alam mo na?` },
     { pattern: /^I know exactly where to ask questions about (.+?)\.$/i, replace: (_m, s) => `Alam ko kung saan mismo magtatanong tungkol sa ${tagalogNoun(s)}.` },
-    { pattern: /^How frequently do you use (.+?)\?$/i, replace: (_m, s) => `Gaano kadalas mong gamitin ang ${tagalogNoun(s)}?` },
+    { pattern: /^How frequently do you use (.+?)\?$/i, replace: (_m, s) => `Gaano kadalas mong ginagamit ang ${tagalogNoun(s)}?` },
     /* ---- Trust & safety ---- */
     { pattern: /^How much do you trust (.+?) to handle your concerns fairly\?$/i, replace: (_m, s) => `Gaano mo pinagkakatiwalaan ang ${tagalogNoun(s)} sa patas na paglutas ng iyong mga alalahanin?` },
-    { pattern: /^How safe or secure do you feel when dealing with (.+?)\?$/i, replace: (_m, s) => `Gaano ka kaligtas o kapanatag kapag nakikitungo sa ${tagalogNoun(s)}?` },
+    { pattern: /^How safe or secure do you feel when dealing with (.+?)\?$/i, replace: (_m, s) => `Gaano ka kapanatag kapag nakikitungo sa ${tagalogNoun(s)}?` },
     { pattern: /^My personal information is handled responsibly in transactions involving (.+?)\.$/i, replace: (_m, s) => `Maingat na pinangangalagaan ang aking personal na impormasyon sa mga transaksyong may kinalaman sa ${tagalogNoun(s)}.` },
     /* ---- Improvement ---- */
-    { pattern: /^What aspect of (.+?) needs the most improvement\?$/i, replace: (_m, s) => `Anong bahagi ng ${tagalogNoun(s)} ang pinakakailangan ng pagpapabuti?` },
+    { pattern: /^What aspect of (.+?) needs the most improvement\?$/i, replace: (_m, s) => `Anong bahagi ng ${tagalogNoun(s)} ang pinakamahalagang mapabuti?` },
     { pattern: /^What is the biggest challenge you experience with (.+?)\?$/i, replace: (_m, s) => `Ano ang pinakamalaking hamon na nararanasan mo sa ${tagalogNoun(s)}?` },
     { pattern: /^What suggestions can you give to improve (.+?)\?$/i, replace: (_m, s) => `Anong mga mungkahi ang maibibigay mo upang mapabuti ang ${tagalogNoun(s)}?` },
     { pattern: /^If you could change one thing about (.+?), what would it be\?$/i, replace: (_m, s) => `Kung may isang bagay kang mababago tungkol sa ${tagalogNoun(s)}, ano ito?` },
     { pattern: /^Describe the most recent positive experience you had with (.+?)\.$/i, replace: (_m, s) => `Ilarawan ang pinakahuling magandang karanasan mo sa ${tagalogNoun(s)}.` },
     { pattern: /^Describe a recent experience with (.+?) that frustrated you\.$/i, replace: (_m, s) => `Ilarawan ang kamakailang karanasan mo sa ${tagalogNoun(s)} na nagpabigat ng iyong loob.` },
-    { pattern: /^What additional (.+?) would you like to see offered in the future\?$/i, replace: (_m, s) => `Anong karagdagang ${tagalogNoun(s)} ang nais mong maipagkaloob sa hinaharap?` },
+    { pattern: /^What additional (.+?) would you like to see offered in the future\?$/i, replace: (_m, s) => `Anong iba pang ${tagalogNoun(s)} ang gusto mong makita sa hinaharap?` },
     /* ---- Recommendation ---- */
-    { pattern: /^How likely are you to recommend (.+?) to other (.+?)\?$/i, replace: (_m, s, who) => `Gaano kalaki ang posibilidad na maipamungkahi mo ang ${tagalogNoun(s)} sa iba pang ${tagalogNoun(who)}?` },
+    { pattern: /^How likely are you to recommend (.+?) to other (.+?)\?$/i, replace: (_m, s, who) => `Gaano kalaki ang tsansa na maipapayo mo ang ${tagalogNoun(s)} sa iba pang ${tagalogNoun(who)}?` },
     { pattern: /^I would encourage other (.+?) to use (.+?)\.$/i, replace: (_m, who, s) => `Hihikayatin ko ang iba pang ${tagalogNoun(who)} na gamitin ang ${tagalogNoun(s)}.` },
     { pattern: /^Would you use (.+?) again in the future\?$/i, replace: (_m, s) => `Gagamitin mo pa ba ang ${tagalogNoun(s)} sa hinaharap?` },
     /* ---- Comparative ---- */
@@ -109,11 +109,11 @@ export const PHRASE_RULES: Record<string, PhraseRule[]> = {
     { pattern: /^Tell me more about this: (.+?)\?$/i, replace: (_m, s) => `Ikuwento mo pa ang tungkol dito: ${tagalogNoun(s)}?` },
     { pattern: /^In your own words, what are your thoughts on: (.+?)\?$/i, replace: (_m, s) => `Sa sarili mong pananalita, ano ang iyong mga saloobin tungkol sa: ${tagalogNoun(s)}?` },
     /* ---- AI follow-up probes ---- */
-    { pattern: /^You answered briefly regarding (.+?)\. Could you tell me more about your experience with (.+?)\?$/i, replace: (_m, a, b) => `Maikli ang iyong sagot tungkol sa ${tagalogNoun(a)}. Maaari mo bang ikuwento pa ang iyong karanasan sa ${tagalogNoun(b)}?` },
-    { pattern: /^What is the main reason behind your answer to "(.+?)"\?$/i, replace: (_m, a) => `Ano ang pangunahing dahilan ng iyong sagot sa "${a}"?` },
-    { pattern: /^You mentioned a difficulty with (.+?)\. Could you describe one specific situation where you experienced this with (.+?)\?$/i, replace: (_m, a, b) => `Nabanggit mo ang isang kahirapan tungkol sa ${tagalogNoun(a)}. Maaari mo bang ilarawan ang isang tiyak na sitwasyon kung saan naranasan mo ito sa ${tagalogNoun(b)}?` },
-    { pattern: /^What would need to change so that the problem you described about (.+?) no longer affects you\?$/i, replace: (_m, a) => `Ano ang dapat magbago upang hindi ka na maapektuhan ng suliraning binanggit mo tungkol sa ${tagalogNoun(a)}?` },
-    { pattern: /^You suggested an improvement involving (.+?)\. How urgent is that change compared with other improvements to (.+?)\?$/i, replace: (_m, a, b) => `Nagmungkahi ka ng pagpapabuti tungkol sa ${tagalogNoun(a)}. Gaano kaapurahan ang pagbabagong iyon kumpara sa iba pang pagpapabuti sa ${tagalogNoun(b)}?` },
+    { pattern: /^You answered briefly regarding (.+?)\. Could you tell me more about your experience with (.+?)\?$/i, replace: (_m, a, b) => `Maikli ang sagot mo tungkol sa ${tagalogNoun(a)}. Pwede mo bang ikuwento pa ang karanasan mo sa ${tagalogNoun(b)}?` },
+    { pattern: /^What is the main reason behind your answer to "(.+?)"\?$/i, replace: (_m, a) => `Bakit mo sinagot iyon sa "${a}"?` },
+    { pattern: /^You mentioned a difficulty with (.+?)\. Could you describe one specific situation where you experienced this with (.+?)\?$/i, replace: (_m, a, b) => `Nabanggit mo ang hirap sa ${tagalogNoun(a)}. Pwede mo bang ikuwento ang isang nangyari kung saan naranasan mo ito sa ${tagalogNoun(b)}?` },
+    { pattern: /^What would need to change so that the problem you described about (.+?) no longer affects you\?$/i, replace: (_m, a) => `Ano ang dapat magbago para hindi ka na maapektuhan ng problemang binanggit mo sa ${tagalogNoun(a)}?` },
+    { pattern: /^You suggested an improvement involving (.+?)\. How urgent is that change compared with other improvements to (.+?)\?$/i, replace: (_m, a, b) => `Nagbigay ka ng mungkahi tungkol sa ${tagalogNoun(a)}. Gaano kaapurahan ang pagbabagong iyon kumpara sa iba pang ayos sa ${tagalogNoun(b)}?` },
     { pattern: /^You described something positive about (.+?)\. What exactly made that experience work well for you\?$/i, replace: (_m, a) => `Naglarawan ka ng magandang bagay tungkol sa ${tagalogNoun(a)}. Ano mismo ang naging dahilan ng maayos na karanasang iyon?` },
     { pattern: /^Would you recommend (.+?) to other (.+?) for the reason you mentioned\? Why\?$/i, replace: (_m, a, b) => `Maipapamungkahi mo ba ang ${tagalogNoun(a)} sa iba pang ${tagalogNoun(b)} dahil sa binanggit mong dahilan? Bakit?` },
     { pattern: /^You mentioned (.+?)\. How does that affect your overall satisfaction with (.+?)\?$/i, replace: (_m, a, b) => `Nabanggit mo ang ${tagalogNoun(a)}. Paano ito nakakaapekto sa iyong kabuuang kasiyahan sa ${tagalogNoun(b)}?` },
@@ -125,8 +125,8 @@ export const PHRASE_RULES: Record<string, PhraseRule[]> = {
     { pattern: /^How long (.+?)\?$/i, replace: (_m, s) => `Gaano katagal ang ${tagalogNoun(s)}?` },
     { pattern: /^How many (.+?)\?$/i, replace: (_m, s) => `Ilan ang ${tagalogNoun(s)}?` },
     { pattern: /^How much (.+?)\?$/i, replace: (_m, s) => `Gaano karami ang ${tagalogNoun(s)}?` },
-    { pattern: /^How (\w+) is (.+?)\?$/i, replace: (_m, adj, s) => `Kumusta ang ${tagalogNoun(s)} sa usapin ng ${tagalogWord(adj)}?` },
-    { pattern: /^How (\w+) are (.+?)\?$/i, replace: (_m, adj, s) => `Kumusta ang ${tagalogNoun(s)} sa usapin ng ${tagalogWord(adj)}?` },
+    { pattern: /^How (\w+) is (.+?)\?$/i, replace: (_m, adj, s) => `Kumusta ang ${tagalogNoun(s)} pagdating sa ${tagalogWord(adj)}?` },
+    { pattern: /^How (\w+) are (.+?)\?$/i, replace: (_m, adj, s) => `Kumusta ang ${tagalogNoun(s)} pagdating sa ${tagalogWord(adj)}?` },
     { pattern: /^What (.+?)\?$/i, replace: (_m, s) => `Ano ang ${tagalogNoun(s)}?` },
     { pattern: /^Which (.+?)\?$/i, replace: (_m, s) => `Alin ang ${tagalogNoun(s)}?` },
     { pattern: /^Would you (.+?)\?$/i, replace: (_m, s) => `Gusto mo bang ${tagalogNoun(s)}?` },
@@ -289,30 +289,62 @@ export const WORD_MAP: Record<string, Record<string, string>> = {
     improving: "napapabuti",
     recommend: "maipamungkahi",
     rate: "susuriin",
+  rating: "saya",
+  access: "gamit",
+  accessible: "madaling gamitin",
+  support: "tulong",
+  survey: "tanong",
+  interviews: "panayam",
+  review: "suri",
+  program: "programa",
+  programs: "mga programa",
+  value: "halaga",
+  consistent: "pare-pareho",
+  consistently: "palagi",
+  improvements: "mga pagbuti",
+  reliable: "maaasahan",
+  responsive: "mabilis tumugon",
+  promptly: "agad",
+  reasonable: "makatwiran",
+  overall: "sa lahat",
+  digital: "online",
+  channel: "paraan",
+  channels: "mga paraan",
+  update: "balita",
+  updates: "mga balita",
+  convenient: "maginhawa",
+  courteous: "magalang",
+  professional: "mahusay",
+  friendly: "palakaibigan",
+  knowledgeable: "maalam",
+  clearly: "nang malinaw",
+  quickly: "mabilis",
+  easily: "madali",
+  easy: "madali",
+  difficult: "mahirap",
+  difficulty: "hirap",
+  available: "handa",
+  satisfied: "nasiyahan",
+  interaction: "pakikipag-usap",
+  whenever: "kapag",
+  urgent: "apurahan",
+  change: "pagbabago",
+  described: "binanggit",
+  yes: "oo",
+  no: "hindi",
+
     use: "gamitin",
     using: "paggamit",
     receive: "tumatanggap",
     received: "natanggap",
     /* adjectives / adverbs */
-    satisfied: "nasisiyahan",
     dissatisfied: "hindi nasisiyahan",
-    accessible: "naaabot",
-    available: "magagamit",
     availability: "pagkakaroon",
-    easy: "madali",
-    difficult: "mahirap",
     clear: "malinaw",
-    quickly: "kabilis",
-    reliable: "maaasahan",
-    responsive: "matugunin",
     efficient: "mabilis at maayos",
     safe: "ligtas",
     secure: "matatag",
     helpful: "matulungin",
-    friendly: "magiliw",
-    courteous: "magalang",
-    professional: "propesyonal",
-    knowledgeable: "may sapat na kaalaman",
     relevant: "angkop",
     important: "mahalaga",
     good: "maganda",
@@ -321,13 +353,10 @@ export const WORD_MAP: Record<string, Record<string, string>> = {
     fair: "patas",
     slow: "mabagal",
     fast: "mabilis",
-    consistent: "pare-pareho",
     timely: "napapanahon",
-    reasonable: "makatwiran",
     acceptable: "katanggap-tanggap",
     additional: "karagdagang",
     future: "hinaharap",
-    overall: "kabuuan",
     usually: "karaniwan",
     normally: "karaniwan",
     average: "karaniwan",
@@ -336,42 +365,33 @@ export const WORD_MAP: Record<string, Record<string, string>> = {
     biggest: "pinakamalaki",
     positive: "maganda",
     negative: "hindi maganda",
+    /* places, services and tools commonly used in survey topics */
+    portal: "portal",
+    online: "online",
+    internet: "internet",
+    connection: "koneksyon",
+    canteen: "kantina",
+    canteens: "mga kantina",
+    enrollment: "pagpapatala",
+    enrolment: "pagpapatala",
+    laboratory: "laboratoryo",
+    gymnasium: "gymnasium",
+    dormitory: "dormitoryo",
+    sanitation: "kalinisan",
+    scholarships: "mga iskolarship",
+    welfare: "kapakanan",
+    counseling: "pagpapayo",
+    guidance: "patnubay",
+    resource: "pinagkukunan",
+    resources: "mga pinagkukunan",
+    requests: "mga kahilingan",
+    request: "kahilingan",
   },
   ceb: {
-    service: "serbisyo",
-    services: "mga serbisyo",
-    quality: "kalidad",
-    staff: "mga trabahante",
-    information: "impormasyon",
-    satisfaction: "katagbawan",
-    improvement: "pagpauswag",
-    trust: "pagsalig",
-    time: "oras",
-    facilities: "pasilidad",
-    students: "mga estudyante",
-    process: "proseso",
   },
   hil: {
-    service: "serbisyo",
-    services: "mga serbisyo",
-    quality: "kalidad",
-    staff: "mga trabahador",
-    information: "impormasyon",
-    satisfaction: "kakontento",
-    improvement: "pauswag",
-    trust: "pagsalig",
-    students: "mga estudyante",
   },
   ilo: {
-    service: "serbisio",
-    services: "dagiti serbisio",
-    quality: "kalidad",
-    staff: "dagiti trabahador",
-    information: "impormasion",
-    satisfaction: "pannakapnek",
-    improvement: "panagpasayaat",
-    trust: "panagtalek",
-    students: "dagiti estudiante",
   },
 };
 
@@ -383,20 +403,30 @@ export const WORD_MAP: Record<string, Record<string, string>> = {
 export const NOUN_PHRASES: Record<string, Record<string, string>> = {
   tl: {
     "university services": "mga serbisyo ng unibersidad",
+    "university library services": "mga serbisyo ng aklatan ng unibersidad",
     "student services": "mga serbisyong pangmag-aaral",
     "faculty services": "mga serbisyong para sa mga guro",
     "academic services": "mga serbisyong pang-akademiko",
     "library services": "mga serbisyo ng aklatan",
     "health services": "mga serbisyong pangkalusugan",
-    "campus facilities": "mga pasilidad ng kampus",
-    "university facilities": "mga pasilidad ng unibersidad",
-    "school facilities": "mga pasilidad ng paaralan",
+    "wpu health services": "mga serbisyong pangkalusugan ng WPU",
+    "guidance services": "mga serbisyong pangpatnubay",
+    "office services": "mga serbisyo ng tanggapan",
+    "canteen services": "mga serbisyo ng kantina",
+    "campus canteen services": "mga serbisyo ng kantina ng kampus",
+    "online enrollment system": "sistema ng online na pagpapatala",
+    "online enrollment": "online na pagpapatala",
+    "enrollment system": "sistema ng pagpapatala",
     "student portal": "portal ng mag-aaral",
     "student satisfaction": "kasiyahan ng mga mag-aaral",
+    "student support": "tulong sa mga mag-aaral",
+    "campus facilities": "mga pasilidad ng kampus",
+    "campus environment": "kapaligiran ng kampus",
+    "university facilities": "mga pasilidad ng unibersidad",
+    "school facilities": "mga pasilidad ng paaralan",
     "campus security": "seguridad sa kampus",
     "campus cleanliness": "kalinisan ng kampus",
     "internet connection": "koneksyon sa internet",
-    "online enrollment": "pagpapatalang pang-online",
     "student welfare": "kapakanan ng mga mag-aaral",
     "financial assistance": "tulong pinansyal",
     "school canteen": "kantina ng paaralan",
@@ -408,17 +438,14 @@ export const NOUN_PHRASES: Record<string, Record<string, string>> = {
 const TAGALOG_TOPIC_HEADS: Record<string, string> = {
   satisfaction: "Kasiyahan",
   perception: "Pananaw",
-  feedback: "Puna",
   assessment: "Pagtataya",
   evaluation: "Pagtataya",
-  experience: "Karanasan",
   view: "Pananaw",
   opinion: "Saloobin",
   attitude: "Saloobin",
   sentiment: "Damdamin",
   insight: "Kaunawaan",
   study: "Pag-aaral",
-  survey: "Pagsisiyasat",
   interview: "Panayam",
   analysis: "Pagsusuri",
 };
@@ -442,12 +469,49 @@ export function tagalogWord(word: string): string {
 }
 
 /**
- * Translates a captured English noun phrase into Tagalog.
+ * Simple Tagalog adjectives used as single-word noun modifiers. They take the
+ * linker form ("mga kagamitang online") instead of the possessive "ng" form
+ * ("mga kagamitan ng online").
+ */
+const TAGALOG_ADJECTIVES: Record<string, string> = {
+  online: "online",
+  digital: "digital",
+  physical: "pisikal",
+  personal: "personal",
+  academic: "pang-akademiko",
+  financial: "pinansyal",
+  technical: "teknikal",
+  official: "opisyal",
+  public: "pampubliko",
+  private: "pribado",
+  local: "lokal",
+  national: "pambansa",
+  special: "espesyal",
+  mobile: "mobile",
+  electronic: "elektroniko",
+  printed: "nakalimbag",
+  new: "bago",
+  old: "luma",
+};
+
+/** Joins a Tagalog head noun with an adjective using the correct linker (-ng / na). */
+function linkTagalogAdjective(head: string, adjective: string) {
+  const base = head.replace(/^mga\s+/, "");
+  const last = base.slice(-1).toLowerCase();
+  const linker = "aeiou".includes(last) || last === "n" ? "ng" : "na";
+  return `${head}${linker} ${adjective}`;
+}
+
+/**
+ * Translates a captured English noun phrase into natural, simple Tagalog.
  *  1. exact phrase map ("university services" → "mga serbisyo ng unibersidad")
- *  2. head-noun + modifier reversal for 2–3 fully known words ("campus facilities")
+ *  2. head-word rule applied RECURSIVELY, so stacked modifiers keep their own
+ *     structure instead of being glued together
+ *     ("university library services" → "mga serbisyo ng aklatan ng unibersidad"
+ *      and never "mga serbisyo ng unibersidad aklatan")
  *  3. lower-case word-by-word mapping that leaves Capitalised proper nouns untouched
  */
-export function tagalogNoun(phrase: string, singular = false): string {
+export function tagalogNoun(phrase: string, singular = false, depth = 0): string {
   const raw = (phrase ?? "")
     .trim()
     .replace(TAGALOG_ARTICLE, "")
@@ -460,18 +524,27 @@ export function tagalogNoun(phrase: string, singular = false): string {
 
   const map = WORD_MAP.tl ?? {};
   const words = raw.split(/\s+/);
-  const known = words.map((word) => map[word]);
 
-  if (words.length >= 2 && words.length <= 3 && known.every((value) => typeof value === "string")) {
-    const head = String(known[known.length - 1]);
-    const modifiers = known.slice(0, -1).join(" ");
-    const combined = `${head} ng ${modifiers}`;
-    return singular ? combined.replace(/^mga\s+/, "") : combined;
+  // Tagalog is head-first: whenever the LAST word is a known head noun the earlier
+  // words become its modifier, even if only some of them are known (this is what
+  // keeps proper nouns such as "WPU Health Services" → "mga serbisyo ng kalusugan ng WPU").
+  if (depth < 3 && words.length >= 2) {
+    const head = map[words[words.length - 1].toLowerCase()];
+    if (head) {
+      const modifierWords = words.slice(0, -1);
+      const adjective =
+        modifierWords.length === 1 ? TAGALOG_ADJECTIVES[modifierWords[0].toLowerCase()] : undefined;
+      const modifier = adjective ?? tagalogNoun(modifierWords.join(" "), false, depth + 1);
+      const combined = adjective
+        ? linkTagalogAdjective(head, modifier)
+        : `${head} ng ${modifier}`;
+      return singular ? combined.replace(/^mga\s+/, "") : combined;
+    }
   }
 
   const translated = words.map((word) => {
-    if (/^[A-Z]/.test(word)) return word; // proper noun — keep verbatim
-    return map[word.toLowerCase()] ?? word;
+    if (/^[A-Z]/.test(word) && !map[word.toLowerCase()]) return word; // proper noun — keep verbatim
+    return map[word.toLowerCase()] ?? word.toLowerCase();
   });
   return translated.join(" ");
 }

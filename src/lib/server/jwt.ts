@@ -13,6 +13,23 @@ export type SessionClaims = {
   name: string;
 };
 
+/**
+ * True when the session cookie may carry the `Secure` flag.
+ *
+ * Browsers SILENTLY DROP `Secure` cookies served over plain HTTP on any host other
+ * than localhost. Sign-in then looked successful (HTTP 200) while the middleware sent
+ * the administrator straight back to the login page. The flag is therefore derived
+ * from the real origin instead of NODE_ENV, and can be forced with AUTH_COOKIE_SECURE.
+ */
+export function useSecureCookie() {
+  const explicit = (process.env.AUTH_COOKIE_SECURE ?? "").trim().toLowerCase();
+  if (explicit === "true" || explicit === "1") return true;
+  if (explicit === "false" || explicit === "0") return false;
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().toLowerCase();
+  if (appUrl) return appUrl.startsWith("https://");
+  return process.env.NODE_ENV === "production";
+}
+
 export function sessionTtlSeconds() {
   const hours = Number(process.env.SESSION_TTL_HOURS ?? 12);
   return (Number.isFinite(hours) && hours > 0 ? hours : 12) * 3600;

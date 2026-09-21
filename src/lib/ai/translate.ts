@@ -8,6 +8,7 @@ import { z } from "zod";
 import { chatJson, resolveProvider } from "@/lib/ai/provider";
 import { PHRASE_RULES, phraseTranslate } from "@/lib/ai/translate-dictionary";
 import { languageLabel } from "@/lib/constants";
+import { SIMPLE_TAGALOG_STYLE_GUIDE } from "@/lib/ai/tagalog";
 
 export type TranslationProvider = "openai" | "offline-engine";
 
@@ -32,6 +33,7 @@ function translationSystemPrompt(targetLanguage: string, context: string) {
     "You are a professional survey translator and localization specialist for institutional research.",
     `Translate the supplied survey text into ${languageLabel(targetLanguage)} (language code: ${targetLanguage}).`,
     "Requirements: preserve the exact meaning, tone and intent; do NOT translate word-by-word; use natural phrasing a native respondent would understand; keep Likert answer choices semantically ordered; keep organisational names, acronyms and proper nouns unchanged; keep any '{...}' placeholders untouched.",
+    targetLanguage === "tl" ? `${SIMPLE_TAGALOG_STYLE_GUIDE} Never leave an English word in the translation (proper nouns excepted).` : "",
     context ? `Context: ${context}` : "",
     'Return STRICT JSON: {"translations":["translated string 1","translated string 2"]} — the array MUST have exactly the same length and order as the input array.',
   ]

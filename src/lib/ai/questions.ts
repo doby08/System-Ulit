@@ -12,6 +12,7 @@ import {
 } from "@/lib/ai/local-engine";
 import { MAX_QUESTIONS_PER_SURVEY, QUESTION_TYPE_VALUES, languageLabel } from "@/lib/constants";
 import { parseTopic } from "@/lib/ai/frames";
+import { SIMPLE_TAGALOG_STYLE_GUIDE, englishLeaks, looksLikeTaglish } from "@/lib/ai/tagalog";
 import type { GeneratedQuestion, GeneratedQuestionSet, QuestionOption } from "@/lib/types";
 
 const optionSchema = z.union([
@@ -115,6 +116,71 @@ function toGeneratedQuestion(
   };
 }
 
+/**
+ * Taglish safety net for AI output.
+ *
+ * Even with explicit instructions the model occasionally returns partly-English Tagalog
+ * ("Gaano ka satisfied sa services?"). Any generated question (or help text) that leaks
+ * English words is replaced with the equivalent NATIVE Tagalog wording from the offline
+ * engine, so a Tagalog survey can never be published with Taglish — the administrator
+ * is told exactly which items were rewritten.
+ */
+function enforcePureTagalog(questions: GeneratedQuestion[], options: GenerateOptions) {
+  if (options.language !== "tl" || !questions.length) return { questions, warnings: [] as string[] };
+
+  const fallbacks = generateQuestionsOffline({
+    ...options,
+    count: MAX_QUESTIONS_PER_SURVEY,
+  }).filter((candidate) => !looksLikeTaglish(candidate.text));
+  const used = new Set<string>();
+  const warnings: string[] = [];
+
+  const pure = questions.map((question, index) => {
+    const textLeaks = englishLeaks(question.text);
+    if (!textLeaks.length) {
+      if (question.helpText && looksLikeTaglish(question.helpText)) {
+        warnings.push(
+          `Question ${index + 1}: the Taglish help text was removed (${englishLeaks(question.helpText).join(", ")}).`,
+        );
+        return { ...question, helpText: null };
+      }
+      return question;
+    }
+
+    const fallback = fallbacks.find(
+      (candidate) => candidate.type === question.type && !used.has(candidate.text),
+    );
+    if (!fallback) {
+      warnings.push(
+        `Question ${index + 1} still contains English words (${textLeaks.join(", ")}); please review it manually.`,
+      );
+      return question;
+    }
+
+    used.add(fallback.text);
+    warnings.push(
+      `Question ${index + 1} was Taglish (${textLeaks.join(", ")}) and was replaced with pure Tagalog wording.`,
+    );
+    return {
+      ...question,
+      text: fallback.text,
+      options: fallback.options ?? question.options,
+      likertScale: fallback.likertScale ?? question.likertScale,
+      helpText: fallback.helpText ?? null,
+    };
+  });
+
+  return { questions: pure, warnings };
+}
+
+function tagalogLanguageLine(language: string, label: string) {
+  const base = `Write every question in ${label} (language code: ${language}). Translate meaning and intent naturally \u2014 never translate word-by-word \u2014 and keep organisational or proper nouns unchanged.`;
+  if (language === "tl") {
+    return `${base} The entire output must be monolingual Filipino: ${SIMPLE_TAGALOG_STYLE_GUIDE} This applies to the question text, the answer options, the Likert labels and the help text.`;
+  }
+  return base;
+}
+
 function methodGuidance(method: string) {
   if (method === "STRUCTURED") {
     return "The interview is STRUCTURED: use closed question types (LIKERT_5, LIKERT_7, RATING, YES_NO, MULTIPLE_CHOICE, MULTI_SELECT) with at most two SHORT_TEXT items. Questions must be fixed, neutral, non-leading and directly comparable across respondents.";
@@ -133,7 +199,7 @@ function systemPrompt(options: GenerateOptions) {
     '{"questions":[{"text":"string","type":"LIKERT_5|LIKERT_7|RATING|YES_NO|MULTIPLE_CHOICE|MULTI_SELECT|SHORT_TEXT|LONG_TEXT|NUMBER|DATE","category":"string","difficulty":"EASY|MEDIUM|HARD","tags":["string"],"options":["string"],"relevanceScore":0-100,"isRequired":true,"helpText":"string","likertScale":5}]}',
     methodGuidance(options.interviewMethod),
     `Interview mode: ${options.interviewMode}.`,
-    `Write every question in ${languageLabel(options.language)} (language code: ${options.language}). Translate meaning and intent naturally — never translate word-by-word — and keep organisational or proper nouns unchanged.`,
+    tagalogLanguageLine(options.language, languageLabel(options.language)),
     "Cover these dimensions where relevant: satisfaction, service quality, accessibility, communication, staff support, facilities, digital experience, process efficiency, awareness, trust, improvement and recommendation.",
     "Questions must be answerable by the stated stakeholder group and must reference the given topic explicitly.",
   ].join("\n");
@@ -186,6 +252,10 @@ export async function generateQuestionSet(options: GenerateOptions): Promise<Gen
         if (questions.length >= count) break;
       }
       const warnings: string[] = [];
+      // Tagalog output is validated and repaired before it reaches the builder.
+      const purity = enforcePureTagalog(questions, { ...options, count });
+      warnings.push(...purity.warnings);
+      questions.splice(0, questions.length, ...purity.questions);
       if (questions.length && questions.length < count) {
         warnings.push(
           `AI returned ${questions.length} of ${count} requested questions; the offline engine completed the set.`,
@@ -260,7 +330,10 @@ export async function regenerateQuestion(
     );
     if (result.ok) {
       const row = result.data.questions.find((q) => !exclude.has(q.text.trim().toLowerCase()));
-      if (row) return toGeneratedQuestion(row, 0, options.language);
+      if (row) {
+        const candidate = toGeneratedQuestion(row, 0, options.language);
+        return enforcePureTagalog([candidate], { ...options, count: 1 }).questions[0] ?? candidate;
+      }
     }
   }
 

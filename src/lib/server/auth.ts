@@ -9,6 +9,7 @@ import {
   SESSION_COOKIE,
   createSessionToken,
   sessionTtlSeconds,
+  useSecureCookie,
   verifySessionToken,
   type SessionClaims,
 } from "@/lib/server/jwt";
@@ -112,7 +113,7 @@ export async function issueSession(user: {
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: useSecureCookie(),
     path: "/",
     maxAge,
   });
@@ -124,7 +125,7 @@ export async function destroySession() {
   store.set(SESSION_COOKIE, "", {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: useSecureCookie(),
     path: "/",
     maxAge: 0,
   });

@@ -13,6 +13,8 @@ import {
   toConversationalPrompt,
   type QuestionFrame,
 } from "@/lib/ai/frames";
+import { tagalogFramePool } from "@/lib/ai/frames-tl";
+import { tagalogTopicContext } from "@/lib/ai/tagalog";
 import { phraseTranslate } from "@/lib/ai/translate-dictionary";
 import { likertLabels } from "@/lib/likert";
 import type { GeneratedQuestion, QuestionOption } from "@/lib/types";
@@ -34,9 +36,31 @@ export type GenerateOptions = {
 
 const OPEN_TYPES = new Set(["LONG_TEXT", "SHORT_TEXT"]);
 
+/**
+ * Native yes/no answers per language — the respondent must never read "Yes"/"No"
+ * inside an otherwise Tagalog (or Cebuano/Hiligaynon/Ilocano) questionnaire.
+ */
+const YES_NO_LABELS: Record<string, [string, string]> = {
+  tl: ["Oo", "Hindi"],
+  ceb: ["Oo", "Dili"],
+  hil: ["Huo", "Indi"],
+  ilo: ["Wen", "Saan"],
+};
+
+function yesNoOptions(language: string): QuestionOption[] {
+  const [yes, no] = YES_NO_LABELS[language] ?? ["Yes", "No"];
+  return [
+    { label: yes, value: "Yes", score: 1 },
+    { label: no, value: "No", score: 0 },
+  ];
+}
+
+/** English frame wording kept for `originalText` when native Tagalog frames are used. */
+const ENGLISH_FRAME_TEXT = new Map(QUESTION_FRAMES.map((frame) => [frame.id, frame.text]));
+
 /** Native open-ended openers used when a closed frame becomes a conversational prompt. */
 const CONVERSATIONAL_OPENERS: Record<string, string> = {
-  tl: "Ikuwento mo sa sarili mong pananalita: ",
+  tl: "Ikuwento mo sa sarili mong mga salita: ",
   ceb: "Isaysay kanako sa imong kaugalingong pulong: ",
   hil: "Isaysay sa akon sa imo kaugalingon nga pulong: ",
   ilo: "Isalaysay mo kaniak iti bukodmo a panunot: ",
@@ -73,8 +97,8 @@ function relevanceFor(frame: QuestionFrame, interviewMethod: string, interviewMo
 }
 
 /** Ranks frames for the interview method, then round-robins by category for variety. */
-function selectFrames(method: string, difficulty?: string | null) {
-  const ranked = [...QUESTION_FRAMES].sort((a, b) => {
+function selectFrames(pool: QuestionFrame[], method: string, difficulty?: string | null) {
+  const ranked = [...pool].sort((a, b) => {
     const relDiff = relevanceFor(b, method, "INDIVIDUAL") - relevanceFor(a, method, "INDIVIDUAL");
     if (relDiff !== 0) return relDiff;
     if (difficulty && a.difficulty === difficulty) return -1;
@@ -117,8 +141,12 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
     options;
 
   const count = Math.max(1, Math.min(MAX_QUESTIONS_PER_SURVEY, Math.round(options.count || 10)));
-  const ctx = parseTopic(topic, stakeholder);
-  let frames = selectFrames(interviewMethod, difficulty);
+  // Tagalog is generated from NATIVE Tagalog frames (never machine-translated), so the
+  // wording is guaranteed to be pure, simple and grammatical Filipino.
+  const nativeTagalog = language === "tl";
+  const baseCtx = parseTopic(topic, stakeholder);
+  const ctx = nativeTagalog ? tagalogTopicContext(baseCtx) : baseCtx;
+  let frames = selectFrames(nativeTagalog ? tagalogFramePool() : QUESTION_FRAMES, interviewMethod, difficulty);
 
   if (questionTypes?.length) {
     const allowed = new Set(questionTypes);
@@ -137,6 +165,11 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
   for (const frame of frames) {
     if (questions.length >= count) break;
     let text = interpolate(frame.text, ctx);
+    // English wording (kept for `originalText`) — with native Tagalog frames the
+    // interpolated Tagalog text would otherwise be stored as the "original".
+    const sourceText = nativeTagalog
+      ? interpolate(ENGLISH_FRAME_TEXT.get(frame.id) ?? frame.text, baseCtx)
+      : text;
     let type = frame.type;
 
     // Unstructured interviews lean conversational: most closed frames become open prompts.
@@ -145,7 +178,8 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
     if (interviewMethod === "UNSTRUCTURED" && CLOSED_TYPES.has(type)) {
       if (questions.length < Math.ceil(count * 0.75)) {
         if (language && language !== "en") {
-          text = `${conversationalOpener(language)}${phraseTranslate(text, language).text}`;
+          const body = nativeTagalog ? text : phraseTranslate(text, language).text;
+          text = `${conversationalOpener(language)}${body}`;
         } else {
           text = toConversationalPrompt(text, ctx);
         }
@@ -157,21 +191,18 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
     if (seen.has(key)) continue;
     seen.add(key);
 
-    const translated = language && language !== "en" ? phraseTranslate(text, language) : null;
+    // Native Tagalog frames are already pure Tagalog — never run them through the
+    // phrase dictionary (that is what used to produce Taglish).
+    const translated =
+      !nativeTagalog && language && language !== "en" ? phraseTranslate(text, language) : null;
     const finalText = translated?.text ?? text;
 
     const likertScale = type === "LIKERT_5" ? 5 : type === "LIKERT_7" ? 7 : null;
-    const options =
-      type === "YES_NO"
-        ? [
-            { label: "Yes", value: "Yes", score: 1 },
-            { label: "No", value: "No", score: 0 },
-          ]
-        : buildOptions(frame);
+    const options = type === "YES_NO" ? yesNoOptions(language) : buildOptions(frame);
 
     questions.push({
       text: finalText,
-      originalText: text,
+      originalText: sourceText,
       type,
       category: frame.category,
       tags: frame.tags,
@@ -184,7 +215,7 @@ export function generateQuestionsOffline(options: GenerateOptions): GeneratedQue
         likertScale && customLikertLabels?.length === likertScale
           ? customLikertLabels.join(" · ")
           : likertScale
-            ? likertLabels(likertScale, "en").join(" · ")
+            ? likertLabels(likertScale, language || "en").join(" · ")
             : null,
       aiGenerated: true,
       aiSource: "offline-engine",
