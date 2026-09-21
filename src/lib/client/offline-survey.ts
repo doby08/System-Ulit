@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { v4 as uuid } from "uuid";
+/* No external uuid dependency — Render prunes devDependencies at runtime and
+   @types/uuid alone is not enough. crypto.randomUUID() is available in all
+   modern browsers and Node 19+. */
+function newClientId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof (crypto as any).randomUUID === "function") {
+      return (crypto as any).randomUUID();
+    }
+  } catch { /* fall through */ }
+  return `cid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
 import type { AnswerPayload, PublicQuestion, PublicSurveyPayload, ResponseSubmitPayload, SubmitResult, SessionPayload, RespondentPayload } from "@/lib/types";
 import { submitPublicResponse } from "@/lib/client/hooks";
 import {
@@ -177,7 +187,7 @@ export function useOfflineSubmit(
       if (!survey) return { clientResponseId: "", serverResponseId: "", status: "CONFLICT", answersSaved: 0, message: "No survey" } as SubmitResult;
       setIsSt(true);
       setLastR(null);
-      const cid = uuid();
+      const cid = newClientId();
       const did = await getDeviceId();
       const ca: AnswerPayload[] = Object.values(answersMap).map((x) => ({
         questionId: x.questionId, valueText: x.valueText, valueNumber: x.valueNumber,
