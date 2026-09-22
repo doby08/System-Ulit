@@ -39,14 +39,22 @@ export function getDb(): Promise<IDBPDatabase<OfflineDB>> {
   return dbPromise;
 }
 
-export async function cacheSurvey(payload: PublicSurveyPayload): Promise<void> {
+export async function cacheSurvey(payload: PublicSurveyPayload, token?: string): Promise<void> {
   const db = await getDb();
-  await db.put("surveys", payload, payload.token);
+  // Caching is an optimisation: a missing key must never break loading the survey.
+  const key = token ?? payload?.token;
+  if (!key) return;
+  await db.put("surveys", payload, key);
 }
 
 export async function getCachedSurvey(token: string): Promise<PublicSurveyPayload | undefined> {
   const db = await getDb();
-  return db.get("surveys", token);
+  const cached = await db.get("surveys", token);
+  // Ignore malformed cache entries (e.g. an unwrapped API envelope stored by an older
+  // build) so the app refetches a proper payload instead of rendering garbage.
+  if (!cached || typeof cached !== "object") return undefined;
+  if (!("token" in cached) || !Array.isArray(cached.questions)) return undefined;
+  return cached;
 }
 
 export async function getAllCachedSurveys(): Promise<PublicSurveyPayload[]> {

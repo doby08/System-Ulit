@@ -14,6 +14,7 @@ function newClientId(): string {
 }
 import type { AnswerPayload, PublicQuestion, PublicSurveyPayload, ResponseSubmitPayload, SubmitResult, SessionPayload, RespondentPayload } from "@/lib/types";
 import { submitPublicResponse } from "@/lib/client/hooks";
+import { api, getErrorMessage } from "@/lib/client/api";
 import {
   cacheSurvey,
   getCachedSurvey,
@@ -121,10 +122,17 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
       const cached = await getCachedSurvey(token);
       setIsCached(!!cached);
       if (!cached) {
-        const res = await fetch(`/api/public/survey/${encodeURIComponent(token)}`);
-        if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
-        const payload: PublicSurveyPayload = await res.json();
-        await cacheSurvey(payload);
+        // The API answers with the shared { ok, data } envelope — api.get() unwraps it.
+        // (A raw fetch used to cache the envelope itself, whose missing `token` made
+        // IndexedDB reject the write with an "out-of-line keys" error.)
+        const payload = await api.get<PublicSurveyPayload>(
+          `/api/public/survey/${encodeURIComponent(token)}`,
+        );
+        try {
+          await cacheSurvey(payload, token);
+        } catch {
+          /* caching is best-effort — never block loading the survey */
+        }
         if (mounted.current) { setSurvey(payload); setIsCached(true); }
         return;
       }
@@ -132,7 +140,7 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
     } catch (e) {
       const fail = await getCachedSurvey(token);
       if (fail && mounted.current) { setSurvey(fail); setIsCached(true); setError(null); }
-      else if (mounted.current) setError(e instanceof Error ? e.message : "Failed to load survey");
+      else if (mounted.current) setError(getErrorMessage(e) || "Failed to load survey");
     } finally {
       if (mounted.current) setLoading(false);
     }
