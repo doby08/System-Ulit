@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" className="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Offline — WPU Survey</title>
+  <meta name="color-scheme" content="dark" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background: #05070F;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .card {
+      max-width: 420px;
+      width: 100%;
+      background: #0f111a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 16px;
+      padding: 2rem;
+      text-align: center;
+    }
+    .icon { font-size: 3rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 0.5rem; }
+    p { font-size: 0.875rem; color: #94a3b8; line-height: 1.5; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      margin-top: 1.25rem; padding: 0.5rem 1rem;
+      background: #3B6BF6; color: #fff; border: none;
+      border-radius: 8px; font-size: 0.875rem; font-weight: 600;
+      cursor: pointer; text-decoration: none;
+    }
+    .btn:hover { background: #5C88FB; }
+    .btn:visited { color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">📡</div>
+    <h1>You're offline</h1>
+    <p>
+      No internet connection right now. If you've loaded this survey before,
+      try refreshing — it may work from cache.
+    </p>
+    <p style="margin-top:0.5rem; font-size:0.8rem; color:#64748b;">
+      Responses you submit while offline will be saved and synced automatically
+      when you're back online.
+    </p>
+    <a class="btn" href="/">Back to home</a>
+  </div>
+  <script>
+    // Attempt to refresh the page when connection returns
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', () => { window.location.reload(); });
+    }
+  </script>
+</body>
+</html>

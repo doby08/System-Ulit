@@ -64,35 +64,36 @@ function buildContentHash(payload: ResponseSubmitPayload): string {
 
 /* Network status */
 
-export function useOnlineStatus(): boolean {
+export function useOnlineStatus(onReconnect?: () => void): boolean {
   const [online, setOnline] = useState(true);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const handleOnline = () => {
       setOnline(true);
       syncPendingOnReconnect();
+      onReconnect?.();
     };
     const handleOffline = () => setOnline(false);
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
     setOnline(navigator.onLine);
+    // If we're already online when the component mounts, trigger sync too
+    if (navigator.onLine) {
+      syncPendingOnReconnect();
+      onReconnect?.();
+    }
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
-  }, []);
+  }, [onReconnect]);
   return online;
 }
-
-/* Cached survey loader */
-
-export interface CachedResult {
-  survey: PublicSurveyPayload | null;
-  loading: boolean;
   error: string | null;
   isCached: boolean;
   refresh: () => Promise<void>;
   pendingCount: number;
+  syncNow: () => Promise<void>;
 }
 
 export function useCachedSurvey(token: string, enabled = true): CachedResult {
@@ -122,9 +123,9 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
       const cached = await getCachedSurvey(token);
       setIsCached(!!cached);
       if (!cached) {
-        // The API answers with the shared { ok, data } envelope — api.get() unwraps it.
-        // (A raw fetch used to cache the envelope itself, whose missing `token` made
-        // IndexedDB reject the write with an "out-of-line keys" error.)
+        // Network-first: try the API. If we're offline, the request fails and we
+        // fall through to the catch block, where we show the cached survey (if any)
+        // with a clear messaging instead of a raw "check your connection" error.
         const payload = await api.get<PublicSurveyPayload>(
           `/api/public/survey/${encodeURIComponent(token)}`,
         );
@@ -138,9 +139,16 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
       }
       if (mounted.current) setSurvey(cached);
     } catch (e) {
+      // Online request failed (likely offline). Try to show a cached survey if one
+      // exists from a previous visit; otherwise show a clear offline message.
       const fail = await getCachedSurvey(token);
-      if (fail && mounted.current) { setSurvey(fail); setIsCached(true); setError(null); }
-      else if (mounted.current) setError(getErrorMessage(e) || "Failed to load survey");
+      if (fail && mounted.current) {
+        setSurvey(fail);
+        setIsCached(true);
+        setError("You're offline — showing the cached version of this survey.");
+      } else if (mounted.current) {
+        setError("Unable to load survey — you may be offline. Check your connection and try again.");
+      }
     } finally {
       if (mounted.current) setLoading(false);
     }
@@ -151,7 +159,7 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
     return () => { mounted.current = false; };
   }, [refresh]);
 
-  return { survey, loading, error, isCached, refresh, pendingCount };
+  return { survey, loading, error, isCached, refresh, pendingCount, syncNow: syncPendingOnReconnect };
 }
 
 /* Build payload helper */
@@ -296,36 +304,87 @@ export function useOfflineSubmit(
 /* Background sync */
 
 let syncQ = false;
+let syncTimer: ReturnType<typeof setInterval> | null = null;
+
+function isOnline(): boolean {
+  if (typeof window === "undefined") return true;
+  return navigator.onLine;
+}
+
 export function syncPendingOnReconnect(): void {
   if (syncQ) return;
+  if (!isOnline()) return;
   syncQ = true;
-  Promise.resolve().then(async () => {
+  syncInternal().finally(() => {
     syncQ = false;
-    const pend = await getPendingByStatus("PENDING");
-    if (!pend.length) return;
-    for (const r of pend.slice(0, 50)) {
-      try {
-        await updatePendingStatus(r.id, "SYNCING");
-        const aa = (r.answers as AnswerPayload[]) || [];
-        const pl = buildPayload(r.token, r.id, aa, r.respondent, r.session, r.language);
-        const res = await submitPublicResponse(pl);
-        if (res.status === "CREATED" || res.status === "UPDATED" || res.status === "DUPLICATE") {
-          await updatePendingStatus(r.id, "SYNCED", { syncedAt: new Date().toISOString(), serverResponseId: res.serverResponseId });
-          await deletePending(r.id);
-        } else {
-          await updatePendingStatus(r.id, "CONFLICT", { lastError: res.message });
-        }
-      } catch (e) {
-        await updatePendingStatus(r.id, "FAILED", { lastError: e instanceof Error ? e.message : "Sync failed", attempts: (r.attempts || 0) + 1 });
-      }
-    }
+    maintainSyncRetry();
   });
 }
 
-export interface OffSubmitResult {
-  submit: (answers: Record<string, AnswerPayload>, respondent: Record<string, unknown>, session: SessionPayload | null) => Promise<SubmitResult>;
-  isSubmitting: boolean;
-  lastResult: SubmitResult | null;
-  syncNow: () => Promise<void>;
-  clearAllPending: () => Promise<void>;
+async function syncInternal(): Promise<void> {
+  const pend = await getPendingByStatus("PENDING");
+  if (!pend.length) {
+    stopSyncRetry();
+    return;
+  }
+  for (const r of pend.slice(0, 50)) {
+    try {
+      await updatePendingStatus(r.id, "SYNCING");
+      const aa = (r.answers as AnswerPayload[]) || [];
+      const pl = buildPayload(r.token, r.id, aa, r.respondent, r.session, r.language);
+      const res = await submitPublicResponse(pl);
+      if (res.status === "CREATED" || res.status === "UPDATED" || res.status === "DUPLICATE") {
+        await updatePendingStatus(r.id, "SYNCED", { syncedAt: new Date().toISOString(), serverResponseId: res.serverResponseId });
+        await deletePending(r.id);
+      } else {
+        await updatePendingStatus(r.id, "CONFLICT", { lastError: res.message });
+      }
+    } catch (e) {
+      await updatePendingStatus(r.id, "FAILED", { lastError: e instanceof Error ? e.message : "Sync failed", attempts: (r.attempts || 0) + 1 });
+    }
+  }
+}
+
+function maintainSyncRetry(): void {
+  if (syncTimer) return;
+  if (!isOnline()) return;
+  // Check every 15 seconds if there are pending records to sync
+  syncTimer = setInterval(() => {
+    if (!isOnline()) {
+      stopSyncRetry();
+      return;
+    }
+    getPendingByStatus("PENDING").then((pend) => {
+      if (pend.length === 0) {
+        stopSyncRetry();
+      } else if (!syncQ) {
+        syncPendingOnReconnect();
+      }
+    }).catch(() => {});
+  }, 15000);
+}
+
+function stopSyncRetry(): void {
+  if (syncTimer) {
+    clearInterval(syncTimer);
+    syncTimer = null;
+  }
+}
+
+// Also trigger sync on visibility change (user returns to tab) and focus
+if (typeof window !== "undefined") {
+  window.addEventListener("visibilitychange", () => {
+    if (!document.hidden && isOnline()) {
+      getPendingByStatus("PENDING").then((pend) => {
+        if (pend.length > 0) syncPendingOnReconnect();
+      }).catch(() => {});
+    }
+  });
+  window.addEventListener("focus", () => {
+    if (isOnline()) {
+      getPendingByStatus("PENDING").then((pend) => {
+        if (pend.length > 0) syncPendingOnReconnect();
+      }).catch(() => {});
+    }
+  });
 }

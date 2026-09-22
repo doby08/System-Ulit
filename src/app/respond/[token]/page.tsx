@@ -4,12 +4,17 @@ import { Suspense } from "react";
 import { useCachedSurvey, useOnlineStatus } from "@/lib/client/offline-survey";
 import { SurveyForm } from "@/components/respondent/survey-form";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WifiOff, RefreshCw } from "lucide-react";
+import { WifiOff, RefreshCw, Cloud } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function SurveyFormWrapper({ token }: { token: string }) {
-  const { survey, loading, error, isCached, pendingCount, refresh } = useCachedSurvey(token);
-  const online = useOnlineStatus();
+  const { survey, loading, error, isCached, pendingCount, refresh, syncNow } = useCachedSurvey(token);
+  const online = useOnlineStatus(() => {
+    // When we come back online, try to sync pending responses
+    if (pendingCount > 0) {
+      syncNow();
+    }
+  });
 
   if (loading) {
     return (
@@ -57,11 +62,25 @@ function SurveyFormWrapper({ token }: { token: string }) {
             </span>
           )}
         </div>
-        {pendingCount > 0 && (
-          <span className="text-xs text-slate-400">
-            {pendingCount} pending {pendingCount === 1 ? "response" : "responses"}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {pendingCount > 0 && (
+            <span className="text-xs text-slate-400">
+              {pendingCount} pending {pendingCount === 1 ? "response" : "responses"}
+            </span>
+          )}
+          {pendingCount > 0 && online && syncNow && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => syncNow()}
+              className="text-slate-400 hover:text-white"
+              title="Sync pending responses"
+            >
+              <Cloud className="w-3.5 h-3.5 mr-1" />
+              Sync
+            </Button>
+          )}
+        </div>
         <Button variant="ghost" size="sm" onClick={refresh} className="text-slate-400 hover:text-white">
           <RefreshCw className="w-3.5 h-3.5 mr-1" /> Refresh
         </Button>

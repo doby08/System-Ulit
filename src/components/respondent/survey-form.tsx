@@ -66,8 +66,9 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
   // Get token from URL for offline submission
   const token = typeof window !== "undefined" ? window.location.pathname.split("/respond/")[1] || "" : "";
 
-  const { submit: offlineSubmit, isSubmitting, lastResult: offResult } = useOfflineSubmit(token, payload, () => {
-    // Pending count update callback
+  const [pendingCount, setPendingCount] = useState(0);
+  const { submit: offlineSubmit, isSubmitting, lastResult: offResult, syncNow: syncNowFn } = useOfflineSubmit(token, payload, (delta) => {
+    setPendingCount((prev) => Math.max(0, prev + delta));
   });
 
   const enabledDemographics = useMemo(
@@ -257,6 +258,27 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
             <p className="text-xs text-slate-500">
               Response ID: {lastResult.clientResponseId}
             </p>
+          )}
+          {lastResult?.status === "PENDING" && (
+            <div className="mt-4 flex flex-col items-center gap-3">
+              <p className="text-xs text-amber-400">
+                {typeof window !== "undefined" && window.navigator.onLine
+                  ? "You're online — tap Sync Now to submit immediately."
+                  : "You're offline — your response will sync automatically when you reconnect."}
+              </p>
+              {typeof window !== "undefined" && window.navigator.onLine && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => syncNowFn()}
+                  disabled={isSubmitting}
+                  className="min-w-[140px]"
+                >
+                  <Cloud className="w-4 h-4 mr-2" />
+                  Sync Now
+                </Button>
+              )}
+            </div>
           )}
           <div className="flex justify-center pt-2">
             <Button variant="secondary" onClick={() => window.location.href = "/"}>
