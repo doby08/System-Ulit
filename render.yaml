@@ -4,8 +4,8 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci && npm run render-build
-    startCommand: npm run start
-    healthCheckPath: /login
+    startCommand: npm start
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: 22.12.0
@@ -29,6 +29,10 @@ services:
         sync: false
       - key: SEED_SAMPLE_DATA
         value: "false"
+      # background (default) = bind the port first, push schema + seed in parallel.
+      # Use "off" when the build command already runs `npm run db:ensure-pg`.
+      - key: DB_ENSURE_ON_START
+        value: background
 
 databases:
   - name: wpu-aiis-db

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "node scripts/prisma-generate.mjs && next build",
-    "start": "next start -p ${PORT:-3000}",
+    "start": "node scripts/start.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "postinstall": "node scripts/prisma-generate.mjs",
@@ -22,9 +22,6 @@
     "icons": "node scripts/generate-icons.mjs",
     "render-build": "npm run db:ensure-pg && next build",
     "prestart": "node scripts/prestart.mjs"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",

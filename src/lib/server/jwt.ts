@@ -3,6 +3,7 @@
  * middleware (edge runtime) and from Node route handlers alike.
  */
 import { SignJWT, jwtVerify } from "jose";
+import { configuredAppUrl } from "@/lib/server/base-url";
 
 export const SESSION_COOKIE = "aiis_session";
 
@@ -25,7 +26,7 @@ export function useSecureCookie() {
   const explicit = (process.env.AUTH_COOKIE_SECURE ?? "").trim().toLowerCase();
   if (explicit === "true" || explicit === "1") return true;
   if (explicit === "false" || explicit === "0") return false;
-  const appUrl = (process.env.NEXT_PUBLIC_APP_URL ?? "").trim().toLowerCase();
+  const appUrl = configuredAppUrl().toLowerCase();
   if (appUrl) return appUrl.startsWith("https://");
   return process.env.NODE_ENV === "production";
 }

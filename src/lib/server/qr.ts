@@ -6,9 +6,15 @@ import { randomBytes } from "node:crypto";
 import QRCode from "qrcode";
 import { prisma } from "@/lib/prisma";
 import { ApiError } from "@/lib/server/api";
+import { resolveAppUrl } from "@/lib/server/base-url";
 
+/**
+ * Public base URL embedded in QR codes / respondent links.
+ * Resolved at RUNTIME (see src/lib/server/base-url.ts) so a live deployment can never
+ * emit "http://localhost:3000/respond/..." links after scanning a QR code.
+ */
 export function appUrl() {
-  return (process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return resolveAppUrl();
 }
 
 /** Cryptographically strong, URL-safe public token (no PII, no sequence numbers). */

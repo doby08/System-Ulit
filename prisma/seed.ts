@@ -3,8 +3,9 @@
  * QR tokens and realistic sample responses (submitted through the REAL
  * submission service so seeded data exercises the production code path).
  *
- * Production data is NEVER touched: every section creates rows only when
- * the corresponding table is empty.
+ * Production data is NEVER touched: every section creates rows only when the
+ * corresponding table is empty, and an existing administrator account keeps its
+ * current credentials (set SEED_RESET_ADMIN_PASSWORD=true to overwrite them).
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
@@ -22,6 +23,15 @@ const SEED_NAME = process.env.SEED_ADMIN_NAME ?? "System Administrator";
 const SEED_EMAIL = process.env.SEED_ADMIN_EMAIL ?? "admin@aiis.local";
 const WITH_SAMPLES = (process.env.SEED_SAMPLE_DATA ?? "true").toLowerCase() !== "false";
 
+/**
+ * Existing administrators keep their password unless this is explicitly enabled
+ * (`npm run seed -- --reset-admin` or SEED_RESET_ADMIN_PASSWORD=true). Without it, a
+ * deploy/restart would silently reset the live admin password to SEED_ADMIN_PASSWORD.
+ */
+const RESET_ADMIN =
+  (process.env.SEED_RESET_ADMIN_PASSWORD ?? "").trim().toLowerCase() === "true" ||
+  process.argv.includes("--reset-admin");
+
 async function ensureAdmin() {
   // Case-insensitive lookup so changing SEED_ADMIN_USERNAME capitalisation
   // updates the existing account instead of creating a duplicate admin.
@@ -38,8 +48,21 @@ async function ensureAdmin() {
       user.username.toLowerCase() === SEED_USERNAME.toLowerCase() ||
       (user.email ? user.email.toLowerCase() === SEED_EMAIL.toLowerCase() : false),
   );
+
+  // Never silently rewrite a live administrator's credentials: this seed also runs on
+  // every hosting boot, so the old unconditional `update` reset the password back to
+  // SEED_ADMIN_PASSWORD (default "admin123") after every deploy/restart.
+  if (existing && !RESET_ADMIN) {
+    console.log(`[seed] Admin "${existing.username}" already exists — credentials left unchanged.`);
+    console.log(
+      '[seed] To reset them: set SEED_RESET_ADMIN_PASSWORD="true" and redeploy, or run `npm run admin:reset`.',
+    );
+    return existing;
+  }
+
   const passwordHash = await bcrypt.hash(SEED_PASSWORD, 12);
   if (existing) {
+    console.log(`[seed] SEED_RESET_ADMIN_PASSWORD — resetting credentials for "${SEED_USERNAME}".`);
     return prisma.user.update({
       where: { id: existing.id },
       data: {
