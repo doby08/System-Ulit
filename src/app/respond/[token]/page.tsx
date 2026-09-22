@@ -1,20 +1,71 @@
 "use client";
 
-import { Suspense } from "react";
-import { useCachedSurvey, useOnlineStatus } from "@/lib/client/offline-survey";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCachedSurvey, useOnlineStatus, getSyncStatus, manualSync, clearFailedConflicts, type SyncStatus } from "@/lib/client/offline-survey";
 import { SurveyForm } from "@/components/respondent/survey-form";
 import { Skeleton } from "@/components/ui/skeleton";
-import { WifiOff, RefreshCw, Cloud } from "lucide-react";
+import { Wifi, WifiOff, RefreshCw, Cloud, AlertCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 function SurveyFormWrapper({ token }: { token: string }) {
   const { survey, loading, error, isCached, pendingCount, refresh, syncNow } = useCachedSurvey(token);
-  const online = useOnlineStatus(() => {
+  const pendingCountRef = useRef(pendingCount);
+  useEffect(() => {
+    pendingCountRef.current = pendingCount;
+  }, [pendingCount]);
+  const online = useOnlineStatus(useCallback(() => {
     // When we come back online, try to sync pending responses
-    if (pendingCount > 0) {
+    if (pendingCountRef.current > 0) {
       syncNow();
     }
+  }, [syncNow]));
+
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>({
+    pending: 0, syncing: 0, failed: 0, conflicts: 0, lastSync: null
   });
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const hasActiveSyncWork = syncStatus.pending > 0 || syncStatus.syncing > 0;
+
+  const updateStatus = useCallback(() => {
+    getSyncStatus().then(setSyncStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    updateStatus();
+  }, [updateStatus, online, pendingCount]);
+
+  useEffect(() => {
+    const refresh = () => updateStatus();
+    if (typeof window !== "undefined") {
+      window.addEventListener("offline-sync-status", refresh);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("offline-sync-status", refresh);
+      }
+    };
+  }, [updateStatus]);
+
+  useEffect(() => {
+    if (!online || !hasActiveSyncWork) return;
+    const interval = setInterval(updateStatus, 10000);
+    return () => clearInterval(interval);
+  }, [online, hasActiveSyncWork, updateStatus]);
+
+  const handleManualSync = async () => {
+    setIsManualSyncing(true);
+    try {
+      await manualSync();
+      updateStatus();
+    } finally {
+      setIsManualSyncing(false);
+    }
+  };
+
+  const handleClearFailed = async () => {
+    await clearFailedConflicts();
+    updateStatus();
+  };
 
   if (loading) {
     return (
@@ -48,11 +99,11 @@ function SurveyFormWrapper({ token }: { token: string }) {
   return (
     <div className="min-h-screen bg-[#05070F]">
       {/* Status bar */}
-      <div className="sticky top-0 z-10 flex items-center justify-between px-4 py-2 bg-[#05070F]/95 backdrop-blur border-b border-white/5">
-        <div className="flex items-center gap-2">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-3 px-4 py-2 bg-[#05070F]/95 backdrop-blur border-b border-white/5">
+        <div className="flex flex-wrap items-center gap-2">
           {online ? (
             <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-              <WifiOff className="w-3.5 h-3.5" style={{ opacity: 0.5 }} />
+              <Wifi className="w-3.5 h-3.5" style={{ opacity: 0.5 }} />
               Online
             </span>
           ) : (
@@ -61,23 +112,64 @@ function SurveyFormWrapper({ token }: { token: string }) {
               Offline — responses will sync when connected
             </span>
           )}
+
+          {/* Sync status indicators */}
+          {syncStatus.syncing > 0 && online && (
+            <span className="flex items-center gap-1.5 text-xs text-blue-400">
+              <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
+              Syncing {syncStatus.syncing}...
+            </span>
+          )}
+
+          {syncStatus.failed > 0 && (
+            <span className="flex items-center gap-1 text-xs text-rose-400" title="Failed to sync - tap to retry or clear">
+              <AlertCircle className="w-3 h-3" />
+              {syncStatus.failed} failed
+            </span>
+          )}
+
+          {syncStatus.conflicts > 0 && (
+            <span className="flex items-center gap-1 text-xs text-orange-400" title="Sync conflicts need attention">
+              <AlertCircle className="w-3 h-3" />
+              {syncStatus.conflicts} conflict{syncStatus.conflicts === 1 ? "" : "s"}
+            </span>
+          )}
+
+          {syncStatus.lastSync && (
+            <span className="text-xs text-slate-500" title="Last sync time">
+              Last sync: {new Date(syncStatus.lastSync).toLocaleTimeString()}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3">
+
+        <div className="ml-auto flex flex-wrap items-center gap-3">
           {pendingCount > 0 && (
             <span className="text-xs text-slate-400">
               {pendingCount} pending {pendingCount === 1 ? "response" : "responses"}
             </span>
           )}
-          {pendingCount > 0 && online && syncNow && (
+          {pendingCount > 0 && online && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => syncNow()}
+              onClick={handleManualSync}
+              disabled={isManualSyncing || syncStatus.syncing > 0}
               className="text-slate-400 hover:text-white"
               title="Sync pending responses"
             >
-              <Cloud className="w-3.5 h-3.5 mr-1" />
+              <Cloud className={`w-3.5 h-3.5 mr-1 ${isManualSyncing ? 'animate-spin' : ''}`} />
               Sync
+            </Button>
+          )}
+          {(syncStatus.failed > 0 || syncStatus.conflicts > 0) && online && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleClearFailed}
+              className="text-rose-400 hover:text-rose-300"
+              title="Clear failed/conflict records"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
             </Button>
           )}
         </div>

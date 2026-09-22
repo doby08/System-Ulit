@@ -43,6 +43,16 @@ function registerServiceWorker() {
     .catch((error) => {
       console.error('[SW] Registration failed:', error);
     });
+
+  // Listen for messages from the service worker (e.g. TRIGGER_SYNC from background sync)
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    const { type } = event.data || {};
+    if (type === 'TRIGGER_SYNC') {
+      console.log('[SW] Received TRIGGER_SYNC from background sync');
+      // Dispatch a synthetic event that offline-survey.ts listens for
+      window.dispatchEvent(new CustomEvent('offline-sync-needed'));
+    }
+  });
 }
 
 export function ClientRoot({ children }: { children: ReactNode }) {

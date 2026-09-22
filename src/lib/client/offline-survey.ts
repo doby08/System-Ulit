@@ -12,7 +12,7 @@ function newClientId(): string {
   } catch { /* fall through */ }
   return `cid-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
-import type { AnswerPayload, PublicQuestion, PublicSurveyPayload, ResponseSubmitPayload, SubmitResult, SessionPayload, RespondentPayload } from "@/lib/types";
+import type { AnswerPayload, OfflineQueueRecord, PublicQuestion, PublicSurveyPayload, ResponseSubmitPayload, SubmitResult, SessionPayload, RespondentPayload } from "@/lib/types";
 import { submitPublicResponse } from "@/lib/client/hooks";
 import { api, getErrorMessage } from "@/lib/client/api";
 import {
@@ -20,10 +20,14 @@ import {
   getCachedSurvey,
   queuePending,
   updatePendingStatus,
-  getPendingByStatus,
+  getPendingByStatus as getPendingRecordsByStatus,
   deletePending,
   getDeviceId,
 } from "@/lib/client/idb";
+
+export async function getPendingByStatus(status: OfflineQueueRecord["status"]): Promise<OfflineQueueRecord[]> {
+  return getPendingRecordsByStatus(status);
+}
 
 /* Simple hash for client-side deduplication (matches server hash format) */
 
@@ -89,12 +93,25 @@ export function useOnlineStatus(onReconnect?: () => void): boolean {
   }, [onReconnect]);
   return online;
 }
+
+export interface CachedResult {
+  survey: PublicSurveyPayload | null;
+  loading: boolean;
   error: string | null;
   isCached: boolean;
   refresh: () => Promise<void>;
   pendingCount: number;
   syncNow: () => Promise<void>;
 }
+
+export interface SyncStatus {
+  pending: number;
+  syncing: number;
+  failed: number;
+  conflicts: number;
+  lastSync: string | null;
+}
+
 
 export function useCachedSurvey(token: string, enabled = true): CachedResult {
   const [survey, setSurvey] = useState<PublicSurveyPayload | null>(null);
@@ -111,8 +128,8 @@ export function useCachedSurvey(token: string, enabled = true): CachedResult {
       if (alive) setPendingCount(rows.length);
     };
     tick();
-    const id = setInterval(tick, 3000);
-    return () => { alive = false; clearInterval(id); };
+    const id = setTimeout(tick, 3000);
+    return () => { alive = false; clearTimeout(id); };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -186,6 +203,14 @@ function buildPayload(
 }
 
 /* Submit result type */
+
+export interface OffSubmitResult {
+  submit: (answers: Record<string, AnswerPayload>, respondent: Record<string, unknown>, session: SessionPayload | null) => Promise<SubmitResult>;
+  isSubmitting: boolean;
+  lastResult: SubmitResult | null;
+  syncNow: () => Promise<void>;
+  clearAllPending: () => Promise<void>;
+}
 
 /* Offline submit hook */
 
@@ -261,13 +286,28 @@ export function useOfflineSubmit(
       };
       setLastR(offRes);
       if (m.current) setIsSt(false);
+
+      if (m.current) {
+        const refreshPending = await getPendingByStatus("PENDING");
+        setP?.(refreshPending.length);
+      }
+
+      // Notify SW to register background sync for this pending response
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("offline-sync-needed"));
+        window.dispatchEvent(new CustomEvent("offline-sync-status"));
+      }
+
       return offRes;
     },
     [token, survey, setP],
   );
 
-  const syncNow = useCallback(async () => {
+    const syncNow = useCallback(async () => {
     const pend = await getPendingByStatus("PENDING");
+    let synced = 0;
+    let failed = 0;
+
     for (const r of pend) {
       try {
         await updatePendingStatus(r.id, "SYNCING");
@@ -277,19 +317,38 @@ export function useOfflineSubmit(
         if (res.status === "CREATED" || res.status === "UPDATED") {
           await updatePendingStatus(r.id, "SYNCED", { syncedAt: new Date().toISOString(), serverResponseId: res.serverResponseId });
           await deletePending(r.id);
-          setP?.(n => Math.max(0, n - 1));
+          synced++;
         } else if (res.status === "DUPLICATE") {
           await updatePendingStatus(r.id, "SYNCED", { syncedAt: new Date().toISOString(), serverResponseId: res.serverResponseId, conflictNote: "Duplicate" });
           await deletePending(r.id);
-          setP?.(n => Math.max(0, n - 1));
+          synced++;
         } else {
           await updatePendingStatus(r.id, "CONFLICT", { lastError: res.message });
+          failed++;
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Sync failed";
         await updatePendingStatus(r.id, "FAILED", { lastError: msg, attempts: (r.attempts || 0) + 1 });
+        failed++;
       }
     }
+
+    if (m.current) {
+      const remaining = await getPendingByStatus("PENDING");
+      setP?.(remaining.length);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("offline-sync-status"));
+    }
+
+    // Update last sync timestamp
+    if (synced > 0) {
+      const { setLastSync } = await import("@/lib/client/idb");
+      await setLastSync(new Date().toISOString());
+    }
+
+    console.log(`[OfflineSync] useOfflineSubmit syncNow: ${synced} synced, ${failed} failed`);
   }, [setP]);
 
   const clearAllPending = useCallback(async () => {
@@ -304,69 +363,146 @@ export function useOfflineSubmit(
 /* Background sync */
 
 let syncQ = false;
-let syncTimer: ReturnType<typeof setInterval> | null = null;
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let backoffMs = 15000; // Initial backoff: 15 seconds
+const MAX_BACKOFF_MS = 5 * 60 * 1000; // Max 5 minutes
+const BASE_BACKOFF_MS = 15000;
+
 
 function isOnline(): boolean {
   if (typeof window === "undefined") return true;
   return navigator.onLine;
 }
 
-export function syncPendingOnReconnect(): void {
-  if (syncQ) return;
-  if (!isOnline()) return;
+/**
+ * Register for background sync via Service Worker (if supported)
+ * This allows the browser to retry sync even if the tab is closed
+ */
+async function registerBackgroundSync(): Promise<void> {
+  if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    if ("sync" in reg) {
+      await (reg as any).sync.register("sync-responses");
+      console.log("[OfflineSync] Background sync registered");
+    }
+  } catch (e) {
+    console.debug("[OfflineSync] Background sync registration failed:", e);
+  }
+}
+
+/**
+ * Exponential backoff with jitter
+ */
+function getNextBackoff(): number {
+  const jitter = Math.random() * 0.3 * backoffMs;
+  backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS) + jitter;
+  return Math.floor(backoffMs);
+}
+
+function resetBackoff(): void {
+  backoffMs = BASE_BACKOFF_MS;
+}
+
+export function syncPendingOnReconnect(): Promise<void> {
+  if (syncQ) return Promise.resolve();
+  if (!isOnline()) return Promise.resolve();
   syncQ = true;
-  syncInternal().finally(() => {
-    syncQ = false;
-    maintainSyncRetry();
-  });
+  return syncInternal()
+    .then(() => {
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("offline-sync-status"));
+      }
+    })
+    .finally(() => {
+      syncQ = false;
+      scheduleNextSync();
+    });
 }
 
 async function syncInternal(): Promise<void> {
   const pend = await getPendingByStatus("PENDING");
   if (!pend.length) {
     stopSyncRetry();
+    resetBackoff();
     return;
   }
+
+  let syncedCount = 0;
+  let failedCount = 0;
+
   for (const r of pend.slice(0, 50)) {
     try {
       await updatePendingStatus(r.id, "SYNCING");
       const aa = (r.answers as AnswerPayload[]) || [];
       const pl = buildPayload(r.token, r.id, aa, r.respondent, r.session, r.language);
       const res = await submitPublicResponse(pl);
+
       if (res.status === "CREATED" || res.status === "UPDATED" || res.status === "DUPLICATE") {
-        await updatePendingStatus(r.id, "SYNCED", { syncedAt: new Date().toISOString(), serverResponseId: res.serverResponseId });
+        await updatePendingStatus(r.id, "SYNCED", {
+          syncedAt: new Date().toISOString(),
+          serverResponseId: res.serverResponseId,
+          conflictNote: res.status === "DUPLICATE" ? "Duplicate" : null
+        });
         await deletePending(r.id);
+        syncedCount++;
       } else {
         await updatePendingStatus(r.id, "CONFLICT", { lastError: res.message });
+        failedCount++;
       }
     } catch (e) {
-      await updatePendingStatus(r.id, "FAILED", { lastError: e instanceof Error ? e.message : "Sync failed", attempts: (r.attempts || 0) + 1 });
+      const msg = e instanceof Error ? e.message : "Sync failed";
+      await updatePendingStatus(r.id, "FAILED", {
+        lastError: msg,
+        attempts: (r.attempts || 0) + 1
+      });
+      failedCount++;
     }
   }
+
+  if (syncedCount > 0) {
+    resetBackoff();
+    const { setLastSync } = await import("@/lib/client/idb");
+    await setLastSync(new Date().toISOString());
+  }
+
+  console.log(`[OfflineSync] Sync complete: ${syncedCount} synced, ${failedCount} failed`);
 }
 
-function maintainSyncRetry(): void {
-  if (syncTimer) return;
+function scheduleNextSync(): void {
+  if (syncTimer) {
+    clearTimeout(syncTimer);
+    syncTimer = null;
+  }
+
   if (!isOnline()) return;
-  // Check every 15 seconds if there are pending records to sync
-  syncTimer = setInterval(() => {
-    if (!isOnline()) {
+
+  getPendingByStatus("PENDING").then((pend) => {
+    if (pend.length === 0) {
       stopSyncRetry();
+      resetBackoff();
       return;
     }
-    getPendingByStatus("PENDING").then((pend) => {
-      if (pend.length === 0) {
-        stopSyncRetry();
-      } else if (!syncQ) {
+
+    const delay = getNextBackoff();
+    console.log(`[OfflineSync] Next sync attempt in ${Math.round(delay / 1000)}s (${pend.length} pending)`);
+
+    syncTimer = setTimeout(() => {
+      if (isOnline() && !syncQ) {
         syncPendingOnReconnect();
+      } else {
+        scheduleNextSync();
       }
-    }).catch(() => {});
-  }, 15000);
+    }, delay);
+  }).catch(() => {
+    const delay = getNextBackoff();
+    syncTimer = setTimeout(() => scheduleNextSync(), delay);
+  });
 }
 
 function stopSyncRetry(): void {
   if (syncTimer) {
-    clearInterval(syncTimer);
+    clearTimeout(syncTimer);
     syncTimer = null;
   }
 }
@@ -380,6 +516,7 @@ if (typeof window !== "undefined") {
       }).catch(() => {});
     }
   });
+
   window.addEventListener("focus", () => {
     if (isOnline()) {
       getPendingByStatus("PENDING").then((pend) => {
@@ -387,4 +524,88 @@ if (typeof window !== "undefined") {
       }).catch(() => {});
     }
   });
+
+  // Register for background sync when there are pending items
+  window.addEventListener("offline-sync-needed", () => {
+    registerBackgroundSync();
+  });
+
+  // The offline-status bar listens for this event and refreshes counts.
+  window.addEventListener("offline-sync-registered", () => {
+    window.dispatchEvent(new CustomEvent("offline-sync-status"));
+  });
+}
+
+/**
+ * Get sync status for UI display
+ */
+export async function getSyncStatus(): Promise<{
+  pending: number;
+  syncing: number;
+  failed: number;
+  conflicts: number;
+  lastSync: string | null;
+}> {
+  const { getDb } = await import("@/lib/client/idb");
+  const db = await getDb();
+
+  const [pending, syncing, failed, conflicts, settings] = await Promise.all([
+    db.countFromIndex("pending", "status", "PENDING"),
+    db.countFromIndex("pending", "status", "SYNCING"),
+    db.countFromIndex("pending", "status", "FAILED"),
+    db.countFromIndex("pending", "status", "CONFLICT"),
+    db.get("settings", "device"),
+  ]);
+
+  return {
+    pending,
+    syncing,
+    failed,
+    conflicts,
+    lastSync: settings?.lastSync ?? null,
+  };
+}
+
+/**
+ * Manually trigger sync and return results
+ */
+export async function manualSync(): Promise<{
+  synced: number;
+  failed: number;
+  conflicts: number;
+}> {
+  if (syncQ) return { synced: 0, failed: 0, conflicts: 0 };
+
+  syncQ = true;
+  try {
+    const before = await getPendingByStatus("PENDING");
+    await syncInternal();
+    const after = await getPendingByStatus("PENDING");
+    const failed = await getPendingByStatus("FAILED");
+    const conflicts = await getPendingByStatus("CONFLICT");
+
+    return {
+      synced: before.length - after.length,
+      failed: failed.length,
+      conflicts: conflicts.length,
+    };
+  } finally {
+    syncQ = false;
+    scheduleNextSync();
+  }
+}
+
+/**
+ * Clear all failed/conflict records (for user to retry)
+ */
+export async function clearFailedConflicts(): Promise<void> {
+  const { getDb } = await import("@/lib/client/idb");
+  const db = await getDb();
+
+  const failed = await db.getAllFromIndex("pending", "status", "FAILED");
+  const conflicts = await db.getAllFromIndex("pending", "status", "CONFLICT");
+
+  for (const r of [...failed, ...conflicts]) {
+    await db.delete("pending", r.id);
+  }
 }

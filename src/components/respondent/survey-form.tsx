@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type {
   AnswerPayload,
   PublicQuestion,
   PublicSurveyPayload,
   RespondentPayload,
 } from "@/lib/types";
-import { useOfflineSubmit } from "@/lib/client/offline-survey";
+import { useOfflineSubmit, getPendingByStatus } from "@/lib/client/offline-survey";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,9 +67,27 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
   const token = typeof window !== "undefined" ? window.location.pathname.split("/respond/")[1] || "" : "";
 
   const [pendingCount, setPendingCount] = useState(0);
-  const { submit: offlineSubmit, isSubmitting, lastResult: offResult, syncNow: syncNowFn } = useOfflineSubmit(token, payload, (delta) => {
-    setPendingCount((prev) => Math.max(0, prev + delta));
-  });
+  const { submit: offlineSubmit, isSubmitting, lastResult: offResult, syncNow: syncNowFn } = useOfflineSubmit(token, payload, setPendingCount);
+
+  useEffect(() => {
+    const refresh = async () => {
+      try {
+        const rows = await getPendingByStatus("PENDING");
+        setPendingCount(rows.length);
+      } catch {
+        // Ignore IndexedDB read races during unmount/navigation.
+      }
+    };
+    refresh();
+    if (typeof window !== "undefined") {
+      window.addEventListener("offline-sync-status", refresh);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("offline-sync-status", refresh);
+      }
+    };
+  }, []);
 
   const enabledDemographics = useMemo(
     () =>
@@ -268,7 +286,7 @@ export function SurveyForm({ payload }: { payload: PublicSurveyPayload }) {
               </p>
               {typeof window !== "undefined" && window.navigator.onLine && (
                 <Button
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   onClick={() => syncNowFn()}
                   disabled={isSubmitting}

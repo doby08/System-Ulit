@@ -11,6 +11,47 @@ self.addEventListener("message", (e) => {
   }
 });
 
+// Background sync: when the browser wakes up the service worker to retry,
+// notify all clients to re-attempt syncing pending responses.
+self.addEventListener("sync", (e) => {
+  if (e.tag === "sync-responses") {
+    console.log("[SW] Background sync event received");
+    e.waitUntil(
+      self.clients.matchAll({ includeUncontrolled: true, type: "window" }).then((clients) => {
+        if (clients.length === 0) {
+          // No clients open — post a message to all clients
+          // The client-side sync listener will handle this
+          console.log("[SW] No clients open for background sync");
+          return;
+        }
+        // Notify all client tabs to trigger sync
+        clients.forEach((client) => {
+          client.postMessage({ type: "TRIGGER_SYNC" });
+        });
+      }).catch((err) => {
+        console.error("[SW] Background sync failed:", err);
+      }),
+    );
+  }
+});
+
+// Periodic sync: check for updates when the browser allows it
+self.addEventListener("periodicsync", (e) => {
+  // @ts-expect-error - not in TS types yet
+  if (e.tag === "survey-update-check") {
+    e.waitUntil(
+      caches.match("/").then((resp) => {
+        // The client will fetch fresh survey data on visibility change
+        return self.clients.matchAll().then((clients) => {
+          clients.forEach((client) => {
+            client.postMessage({ type: "CHECK_UPDATES" });
+          });
+        });
+      }),
+    );
+  }
+});
+
 self.addEventListener("install", (e) => {
   // Cache the app shell. Use default fetch mode so r.ok works;
   // opaque no-cors responses have status 0 — cache them too.

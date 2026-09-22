@@ -107,3 +107,9 @@ export async function setLastSync(ts: string): Promise<void> {
   const deviceId = await getDeviceId();
   await db.put("settings", { deviceId, lastSync: ts }, "device");
 }
+
+export async function getLastSync(): Promise<string | null> {
+  const db = await getDb();
+  const settings = await db.get("settings", "device");
+  return settings?.lastSync ?? null;
+}
