@@ -153,6 +153,31 @@ export function enforceRateLimit(key: string, limit: number, windowMs: number, m
   return result;
 }
 
+/**
+ * Checks a limit WITHOUT consuming budget. Used by sign-in, where only FAILED
+ * attempts may count: legitimate sign-ins (login → logout → login testing, or
+ * several admins behind one campus NAT address) must never lock the real
+ * administrator out — yet the pre-check still stops brute force cold, because
+ * every wrong guess is recorded by `recordRateLimitHit` below.
+ */
+export function checkRateLimit(key: string, limit: number, windowMs: number, message: string) {
+  const bucket = buckets.get(key);
+  if (bucket && bucket.resetAt >= Date.now() && bucket.count >= limit) {
+    throw new ApiError(message, 429, { code: "RATE_LIMITED", retryable: true });
+  }
+}
+
+/** Counts one FAILED attempt against the window inspected by `checkRateLimit`. */
+export function recordRateLimitHit(key: string, windowMs: number) {
+  const now = Date.now();
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt < now) {
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
+    return;
+  }
+  bucket.count += 1;
+}
+
 /** Keeps the limiter from growing unbounded in long-running processes. */
 export function pruneRateLimiter() {
   const now = Date.now();

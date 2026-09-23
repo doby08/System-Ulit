@@ -7,22 +7,24 @@ import {
   toSessionUser,
   verifyPassword,
 } from "@/lib/server/auth";
-import { ApiError, enforceRateLimit, fail, getIp, getUserAgent, ok, readJson } from "@/lib/server/api";
+import { ApiError, checkRateLimit, fail, getIp, getUserAgent, ok, readJson, recordRateLimitHit } from "@/lib/server/api";
 import { loginSchema } from "@/lib/server/validation";
 
 /**
  * POST /api/auth/login — administrator sign-in.
- * Rate-limited per IP and audited. Session is an httpOnly JWT cookie.
+ * Rate-limited per IP (FAILED guesses only — see `checkRateLimit`) and audited.
+ * Session is an httpOnly JWT cookie.
  */
 export async function POST(request: NextRequest) {
   try {
     const ip = getIp(request);
-    enforceRateLimit(
-      `login:${ip}`,
-      10,
-      60_000,
-      "Too many sign-in attempts from this address. Please wait a minute and try again.",
-    );
+    const rateKey = `login:${ip}`;
+    const rateMessage =
+      "Too many sign-in attempts from this address. Please wait a minute and try again.";
+    // The pre-check never consumes budget; only the failure branches below call
+    // `recordRateLimitHit`. So brute force is still capped at 10 wrong guesses
+    // per minute per IP, but successful sign-ins can no longer lock the admin out.
+    checkRateLimit(rateKey, 10, 60_000, rateMessage);
 
     const body = await readJson(request, loginSchema);
     const identifier = body.username.trim();
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest) {
     const user = await findUserByIdentifier(identifier);
 
     if (!user || !user.isActive) {
+      recordRateLimitHit(rateKey, 60_000);
       await logAudit({
         action: "LOGIN_FAILED",
         entity: "User",
@@ -47,6 +50,7 @@ export async function POST(request: NextRequest) {
 
     const valid = await verifyPassword(body.password, user.passwordHash);
     if (!valid) {
+      recordRateLimitHit(rateKey, 60_000);
       await logAudit({
         action: "LOGIN_FAILED",
         entity: "User",
