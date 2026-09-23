@@ -1,0 +1,36 @@
+
+> ai-interview-survey-system@2026.1.0 predev
+> node scripts/ensure-admin.mjs
+
+[ensure-admin] Administrator "admin" is ready (account repaired, role ADMIN, active). Existing password kept.
+
+> ai-interview-survey-system@2026.1.0 dev
+> next dev -p 3000
+
+   ▲ Next.js 15.5.25
+   - Local:        http://localhost:3000
+   - Network:      http://192.168.1.54:3000
+   - Environments: .env
+   - Experiments (use with caution):
+     · optimizePackageImports
+
+ ✓ Starting...
+ ✓ Ready in 3.8s
+ ○ Compiling /api/health ...
+ ✓ Compiled /api/health in 1413ms (297 modules)
+ GET /api/health 200 in 1736ms
+ ○ Compiling /api/auth/login ...
+ ✓ Compiled /api/auth/login in 648ms (415 modules)
+ POST /api/auth/login 200 in 1353ms
+ ○ Compiling /middleware ...
+ ✓ Compiled /middleware in 1812ms (195 modules)
+ ○ Compiling /admin ...
+ ✓ Compiled /admin in 2.8s (1543 modules)
+ GET /admin 200 in 5105ms
+ GET /api/health 200 in 82ms
+ GET /api/health 200 in 35ms
+ GET /api/health 200 in 43ms
+ POST /api/auth/login 200 in 566ms
+ GET /admin 200 in 150ms
+ POST /api/auth/login 200 in 474ms
+ GET /api/health 200 in 48ms
