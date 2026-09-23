@@ -46,9 +46,15 @@ export function LoginForm() {
         // The session cookie must really be stored by the browser, otherwise the middleware
         // bounces us straight back to the login page and sign-in looks broken. Verifying it
         // turns that silent loop into an actionable message.
+        // Timeout: this await sits between a successful login and the redirect —
+        // if it hangs, the form freezes on "Signing in…" forever.
         const sessionResponse = await fetch("/api/auth/session", {
           credentials: "include",
           cache: "no-store",
+          signal:
+            typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+              ? AbortSignal.timeout(15_000)
+              : undefined,
         });
         const session = sessionResponse.ok
           ? ((await sessionResponse.json()) as { data?: { user?: unknown } })

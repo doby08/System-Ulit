@@ -1,4 +1,4 @@
-const CACHE_NAME = "wpu-survey-v1";
+const CACHE_NAME = "wpu-survey-v2";
 const SHELL_URLS = [
   "/",
   "/offline.html",
@@ -11,20 +11,15 @@ self.addEventListener("message", (e) => {
   }
 });
 
-// Background sync: when the browser wakes up the service worker to retry,
-// notify all clients to re-attempt syncing pending responses.
 self.addEventListener("sync", (e) => {
   if (e.tag === "sync-responses") {
     console.log("[SW] Background sync event received");
     e.waitUntil(
       self.clients.matchAll({ includeUncontrolled: true, type: "window" }).then((clients) => {
         if (clients.length === 0) {
-          // No clients open — post a message to all clients
-          // The client-side sync listener will handle this
           console.log("[SW] No clients open for background sync");
           return;
         }
-        // Notify all client tabs to trigger sync
         clients.forEach((client) => {
           client.postMessage({ type: "TRIGGER_SYNC" });
         });
@@ -35,13 +30,11 @@ self.addEventListener("sync", (e) => {
   }
 });
 
-// Periodic sync: check for updates when the browser allows it
 self.addEventListener("periodicsync", (e) => {
   // @ts-expect-error - not in TS types yet
   if (e.tag === "survey-update-check") {
     e.waitUntil(
-      caches.match("/").then((resp) => {
-        // The client will fetch fresh survey data on visibility change
+      caches.match("/").then(() => {
         return self.clients.matchAll().then((clients) => {
           clients.forEach((client) => {
             client.postMessage({ type: "CHECK_UPDATES" });
@@ -53,24 +46,24 @@ self.addEventListener("periodicsync", (e) => {
 });
 
 self.addEventListener("install", (e) => {
-  // Cache the app shell. Use default fetch mode so r.ok works;
-  // opaque no-cors responses have status 0 — cache them too.
+  // Cache offline fallbacks only; failures tolerated, SW still activates.
   e.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       Promise.all(
         SHELL_URLS.map((url) =>
           fetch(url).then((r) => {
-            // Opaque (no-cors) responses have status 0 — cache them too
             if (r.ok || r.type === "opaque") return cache.put(url, r);
             return Promise.reject(new Error("HTTP " + r.status + " for " + url));
           }).catch(() => {}),
         ),
       ).then(() => self.skipWaiting())
     )
-  )
+  );
 });
 
 self.addEventListener("activate", (e) => {
+  // Purge every older cache (incl. stale "wpu-survey-v1" shell that was
+  // served for ALL navigations and caused frozen black screens).
   e.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))),
@@ -78,68 +71,75 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// App shell: serve cached "/" for ALL navigations so the React app loads offline.
-// React Router (or Next.js client nav) then renders the right route, and
-// useCachedSurvey reads the survey from IndexedDB.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  const isShell = e.request.mode === "navigate";
-  const isApi = url.pathname.startsWith("/api/");
-  const isStatic = /\.(js|css|png|jpg|jpeg|svg|ico|webp|woff2?|ttf|eot)$/.test(url.pathname);
 
+  // Never intercept mutations (login/logout/submit…).
   if (e.request.method !== "GET") return;
 
-  if (isApi) {
-    // Network-first for API calls; cache nothing on failure (responses are dynamic)
+  // API: NETWORK-FIRST; store only public survey reads, replay only offline.
+  if (url.pathname.startsWith("/api/")) {
+    const isPublicRead = url.pathname.startsWith("/api/public/");
     e.respondWith(
       fetch(e.request)
-        .then((r) => (r.ok ? r : Promise.reject(r)))
+        .then((r) => {
+          if (r.ok && isPublicRead) {
+            const clone = r.clone();
+            caches.open(CACHE_NAME).then((c) => c.put(e.request, clone)).catch(() => {});
+          }
+          return r;
+        })
         .catch(() => {
-          // Return cached response if any (e.g. cached survey payload)
-          return caches.match(e.request).then((cached) => cached || Promise.reject("offline"));
+          if (isPublicRead) {
+            return caches.match(e.request).then((cached) => cached || Promise.reject(new Error("offline")));
+          }
+          return Promise.reject(new Error("offline"));
         }),
     );
     return;
   }
 
-  if (isShell) {
-    // Serve the cached app shell (cached "/") for ALL navigations so the React
-    // app loads offline. React then reads the URL and renders the right route;
-    // useCachedSurvey reads the survey from IndexedDB.
+  // Navigations: NETWORK-FIRST — always the freshly deployed HTML. The old
+  // behaviour (cached "/" for EVERY navigation) served stale HTML after each
+  // deploy → dead hashed chunks → frozen black screen, no login form.
+  // Cached shell is now an OFFLINE-only fallback for the respondent PWA.
+  if (e.request.mode === "navigate") {
     e.respondWith(
-      caches.match("/").then((shell) => {
-        if (shell) return shell;
-        return fetch(e.request)
-          .then((r) => {
-            if (r.ok) {
-              const clone = r.clone();
-              caches.open(CACHE_NAME).then((c) => c.put(e.request, clone));
-              return r;
-            }
-            return caches.match("/offline.html");
-          })
-          .catch(() => caches.match("/offline.html"));
-      }),
+      fetch(e.request).catch(() =>
+        caches.match("/").then((shell) => shell || caches.match("/offline.html")),
+      ),
     );
     return;
   }
+
+  // Static: cache-first; /_next/static/ is content-hashed so URLs are safe.
+  const isStatic =
+    url.pathname.startsWith("/_next/static/") ||
+    /\.(js|css|png|jpg|jpeg|svg|ico|webp|woff2?|ttf|eot)$/.test(url.pathname);
 
   if (isStatic) {
-    // Cache-first for static assets
     e.respondWith(
-      caches.match(e.request).then((cached) => cached || fetch(e.request).then((r) => {
-        if (r.ok) {
-          const clone = r.clone();
-          caches.open(CACHE_NAME).then((c) => c.put(e.request, clone));
-        }
-        return r;
-      }).catch(() => caches.match("/offline.html"))),
+      caches.match(e.request).then(
+        (cached) =>
+          cached ||
+          fetch(e.request)
+            .then((r) => {
+              if (r.ok) {
+                const clone = r.clone();
+                caches.open(CACHE_NAME).then((c) => c.put(e.request, clone)).catch(() => {});
+              }
+              return r;
+            })
+            .catch(() => caches.match("/offline.html")),
+      ),
     );
     return;
   }
 
-  // Default: network-first
+  // Everything else: network-first with cache fallback.
   e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request).then((c) => c || Promise.reject("offline"))),
+    fetch(e.request).catch(() =>
+      caches.match(e.request).then((cached) => cached || Promise.reject(new Error("offline"))),
+    ),
   );
 });

@@ -23,6 +23,19 @@ function handleUnhandledRejection(event: PromiseRejectionEvent) {
 function registerServiceWorker() {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
   if (process.env.NODE_ENV === 'development') {
+    // Dev must never be controlled by a leftover service worker (e.g. from an
+    // earlier `next start` on this origin): a stale SW kept serving cached
+    // shell HTML → frozen black screen with no login form. Remove it.
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((regs) => regs.forEach((reg) => reg.unregister()))
+      .catch(() => {});
+    if (typeof caches !== 'undefined') {
+      caches
+        .keys()
+        .then((keys) => keys.filter((k) => k.startsWith('wpu-survey')).map((k) => caches.delete(k)))
+        .catch(() => {});
+    }
     return;
   }
   navigator.serviceWorker

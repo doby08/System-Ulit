@@ -13,6 +13,13 @@ export class ApiClient {
   }
 
   async request<T>(path: string, init?: RequestInit): Promise<T> {
+    // Default 20s timeout so a hung connection (server waking up, blocked
+    // network, intercepted request) surfaces a retryable error instead of an
+    // infinite "Signing in…" spinner. Callers may pass their own signal.
+    const timeoutSignal =
+      typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+        ? AbortSignal.timeout(20_000)
+        : undefined;
     try {
       const res = await fetch(`${this.base}${path}`, {
         ...init,
@@ -21,8 +28,7 @@ export class ApiClient {
           ...(init?.headers ?? {}),
         },
         credentials: "include",
-        // Add timeout to prevent hanging requests
-        signal: init?.signal,
+        signal: init?.signal ?? timeoutSignal,
       });
 
       const json: unknown = await res.json().catch(() => null);
@@ -41,6 +47,19 @@ export class ApiClient {
       const okData = json as { ok?: boolean; data?: T };
       return okData.data as T;
     } catch (error) {
+      // AbortSignal.timeout fired → friendly, retryable error (was: hang forever)
+      if (
+        typeof error === "object" &&
+        error !== null &&
+        (error as { name?: string }).name === "TimeoutError"
+      ) {
+        throw {
+          status: 0,
+          message: "Request timed out — the server may be starting up. Please try again.",
+          code: "TIMEOUT",
+          retryable: true,
+        };
+      }
       // Handle network errors gracefully
       if (error instanceof TypeError && error.message.includes("fetch")) {
         throw {
